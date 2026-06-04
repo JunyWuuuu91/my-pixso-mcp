@@ -1,0 +1,27 @@
+# Advanced mode: let Codex auto-start the bridge over stdio.
+# Replace /absolute/path/to/pixso-advanced-mcp with your local path.
+[mcp_servers.pixso_advanced]
+command = "node"
+args = ["/absolute/path/to/pixso-advanced-mcp/dist/index.js", "serve", "--transport", "stdio", "--ws-port", "3669"]
+startup_timeout_sec = 10
+tool_timeout_sec = 120
+default_tools_approval_mode = "prompt"
+enabled_tools = [
+  "health",
+  "get_file_info",
+  "list_pages",
+  "list_frames",
+  "search_nodes",
+  "get_node_tree",
+  "inspect_node",
+  "get_selection_context",
+  "get_design_tokens",
+  "get_styles",
+  "get_components",
+  "get_export_preview",
+  "get_screenshot",
+  "export_asset",
+  "find_related_frames",
+  "get_coding_context",
+  "get_css_context"
+]
