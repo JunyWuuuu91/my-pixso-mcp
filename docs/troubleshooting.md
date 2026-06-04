@@ -2,7 +2,7 @@
 
 ## The Pixso plugin says "Connection error"
 
-Most often, the local bridge is not running yet.
+Most of the time, the local bridge is not running yet.
 
 Check:
 
@@ -18,7 +18,7 @@ Expected default endpoints:
 
 ## Codex does not see the tools
 
-Check that the `pixso_advanced` block exists in `~/.codex/config.toml`.
+First, check that the `pixso_advanced` block exists in `~/.codex/config.toml`.
 
 Helpful commands:
 
@@ -27,11 +27,11 @@ npx pixso-advanced-mcp install-codex-config --transport http
 npx pixso-advanced-mcp install-codex-config --transport http --write
 ```
 
-If you changed the config manually, restart Codex after updating it.
+If you changed the config manually, restart Codex after saving it.
 
 ## The plugin connects, but nothing happens
 
-Make sure:
+Check these basics:
 
 - the Pixso plugin window is still open;
 - a frame is selected in Pixso;
@@ -46,7 +46,7 @@ Reload the local plugin manifest in Pixso and reopen the plugin window.
 
 ## Screenshot or export calls are unreliable
 
-This project is optimized for structural extraction first, not screenshot-first workflows.
+This project is built for structural extraction first, not for screenshot-first workflows.
 
 Recommended order:
 
@@ -55,10 +55,10 @@ Recommended order:
 3. `get_export_preview`
 4. `get_screenshot` only when needed
 
-If export hangs or times out, rely on structural layout/style extraction instead of forcing more screenshot retries.
+If export hangs or times out, use structural layout/style extraction instead of forcing more screenshot retries.
 
 ## I want automatic bridge startup via stdio
 
-That is supported, but it is not the recommended first-run path.
+That is supported, but it is not the simplest first-run path.
 
 See [docs/advanced-setup.md](advanced-setup.md).

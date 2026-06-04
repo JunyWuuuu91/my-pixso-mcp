@@ -1,8 +1,8 @@
 # Quick Start
 
-This is the recommended setup path for first-time users.
+This is the simplest first setup.
 
-It uses the local **HTTP** transport because it is easier to understand and debug than `stdio`.
+It uses local **HTTP** transport because it is easier to start and debug than `stdio`.
 
 ## 1. Clone the repository
 
@@ -17,7 +17,7 @@ cd pixso-advanced-mcp
 npm install
 ```
 
-`dist/` is already committed, so you do not need to build the project before the first run.
+`dist/` is already committed, so you can run the project right after cloning.
 
 ## 3. Start the local bridge
 
@@ -30,11 +30,11 @@ This starts:
 - MCP HTTP endpoint: `http://127.0.0.1:3668/mcp`
 - Pixso plugin WebSocket bridge: `ws://127.0.0.1:3669/ws`
 
-Keep this process running while you use the plugin and your coding agent.
+Keep this process running while you use Pixso and your coding agent.
 
 ## 4. Install the Codex config
 
-Preview what will be written:
+Preview the config block first:
 
 ```bash
 npx pixso-advanced-mcp install-codex-config --transport http
@@ -52,7 +52,7 @@ This command:
 - writes only a managed `pixso_advanced` block;
 - creates a backup when an existing file is changed.
 
-If you prefer manual editing:
+If you want to edit the config yourself:
 
 ```bash
 npx pixso-advanced-mcp print-codex-config --transport http
@@ -75,9 +75,9 @@ Plugins
   -> select pixso-plugin/manifest.json
 ```
 
-Open the plugin window and keep it open.
+Open the plugin window and keep it open while the agent is working.
 
-## 6. Verify the local setup
+## 6. Check the local setup
 
 ```bash
 npm run doctor
@@ -91,7 +91,7 @@ You should see checks for:
 - Codex config file
 - `pixso_advanced` config block
 
-## 7. Verify from your coding agent
+## 7. Check from your coding agent
 
 In Codex or another MCP-capable agent:
 
@@ -102,4 +102,4 @@ In Codex or another MCP-capable agent:
    - `get_selection_context`
    - `get_coding_context`
 
-If that works, the setup is complete.
+If these calls work, the setup is ready.

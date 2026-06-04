@@ -1,48 +1,46 @@
 # Pixso Advanced MCP
 
-Lightweight local MCP bridge for working with Pixso layouts during UI implementation.
+A local MCP bridge for reading Pixso layouts with an AI agent.
 
-This project is designed for the workflow where an AI coding agent reads a selected Pixso frame, extracts structured layout and style information, and then implements the UI in a real codebase.
+I built this project for a simple reason: the default Pixso MCP server was hard to use for real UI work. It often hung on large frames, style extraction was weak, and it was difficult to get clean layout data for implementation.
+
+I also could not find a good open-source alternative, so I made a local tool for my own workflow.
 
 ## Why this project exists
 
-This MCP was built because the default Pixso MCP workflow was not reliable enough for practical UI implementation:
+This project is for one practical job:
 
-- style and CSS extraction quality was inconsistent;
-- large frames were noisy and expensive to scan;
-- the output was not implementation-ready for coding agents;
-- screenshot/export-heavy paths were too brittle for day-to-day layout work.
+use an AI agent to inspect a Pixso layout in detail, pull layout and style data from it, and then use that data to implement or verify real frontend UI.
 
-Pixso Advanced MCP focuses on a smaller, more reliable local setup:
+With it, an agent can:
 
-- a local read-only Pixso plugin;
-- a local MCP bridge with HTTP and stdio transports;
-- structured layout, typography, asset, and CSS extraction;
-- agent-friendly outputs tuned for UI implementation rather than raw tree dumping.
+- scan a selected frame deeply;
+- collect layout, spacing, typography, colors, assets, and CSS-like data;
+- compare Pixso with a local frontend implementation;
+- build UI components and page layout more strictly from the design.
 
 ## What it is
 
-Pixso Advanced MCP is a local, read-only toolchain made of two parts:
+Pixso Advanced MCP is a local, read-only setup with two parts:
 
-1. A local MCP bridge that exposes Pixso-related tools to Codex or another MCP-capable agent.
-2. A local Pixso plugin that reads the active Pixso file and forwards data to the bridge.
+1. A local MCP bridge for Codex or another MCP client.
+2. A local Pixso plugin that reads the active file and sends data to that bridge.
 
-It does **not** edit the Pixso file and it does **not** generate production code by itself. Its job is to give an agent better implementation context from a Pixso layout.
+It does **not** edit the Pixso file, and it does **not** generate final production code by itself. Its job is to give the agent reliable design context.
 
 ## Who it is for
 
-- Developers implementing UI from Pixso layouts.
-- AI-assisted UI workflows where an agent needs reliable design context.
-- Teams or individuals who want a lightweight local alternative to heavier or less reliable Pixso MCP flows.
+- Developers building UI from Pixso layouts.
+- AI-agent workflows where design data needs to be usable for real implementation.
+- People who want a local alternative to the default Pixso MCP flow.
 
 ## What you get
 
-- `get_coding_context` as the primary high-level design scan.
-- `get_css_context` as a focused secondary CSS drill-down.
+- `get_coding_context` for the main design scan.
+- `get_css_context` for a more detailed CSS pass.
 - Layout, typography, color, asset, and repeated-pattern extraction.
-- Safer export preview before screenshot/export calls.
-- Local-only runtime with no remote service requirement.
-- Better prompts and docs for AI-agent-driven consumption.
+- A safer export preview before screenshot/export calls.
+- A local-only workflow with no remote service requirement.
 
 ## Recommended first-run path
 

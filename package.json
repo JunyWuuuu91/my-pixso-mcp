@@ -1,7 +1,7 @@
 {
   "name": "pixso-advanced-mcp",
   "version": "0.4.0",
-  "description": "Lightweight local MCP bridge for Pixso layouts, built for AI-assisted UI implementation and better style extraction.",
+  "description": "Local MCP bridge and read-only plugin for scanning Pixso layouts with AI agents.",
   "type": "module",
   "author": "pishikin",
   "repository": {

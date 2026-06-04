@@ -1,12 +1,12 @@
 # Pixso Advanced MCP plugin
 
-This directory contains the local Pixso plugin used by Pixso Advanced MCP.
+This directory contains the local Pixso plugin for Pixso Advanced MCP.
 
 ## What it does
 
 - reads the active Pixso file through the Pixso Plugin API;
 - connects to the local MCP bridge through WebSocket;
-- forwards read-only design data for extraction and UI implementation workflows.
+- sends read-only design data to the bridge.
 
 ## Files
 
@@ -24,4 +24,4 @@ ws://127.0.0.1:3669/ws
 
 Keep the plugin window open while your coding agent is using the MCP tools.
 
-If you update plugin code locally, reload the plugin manifest in Pixso because Pixso keeps plugin code in memory.
+If you update the plugin code locally, reload the plugin manifest in Pixso. Pixso keeps plugin code in memory.
