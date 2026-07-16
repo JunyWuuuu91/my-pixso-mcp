@@ -60,7 +60,15 @@ export function registerTools(server, session, config) {
     }, async () => {
         const status = session.getStatus();
         let pluginProbe = null;
-        if (status.connected) {
+        if (status.connected && status.pending) {
+            pluginProbe = {
+                ok: false,
+                busy: true,
+                pending: status.pending,
+                error: `Pixso plugin is busy with ${status.pending.commands[0]?.command ?? 'another command'}. Health probe was skipped to avoid overloading the plugin runtime.`
+            };
+        }
+        else if (status.connected) {
             try {
                 pluginProbe = await session.call('health', {}, 5000);
             }
@@ -168,13 +176,13 @@ export function registerTools(server, session, config) {
     }, async (input) => callPlugin(session, 'find_related_frames', input));
     server.registerTool('get_coding_context', {
         title: 'Get Pixso coding context',
-        description: 'Primary Pixso design-to-implementation scan. Use this first when the user asks to implement UI from a selected Pixso frame. Returns compact semantic regions, layout, spacing, typography, colors, repeated patterns, assets, quality warnings, and recommended next calls. Do not use get_css_context before this.',
+        description: 'Primary Pixso design-to-implementation scan. Use this first when the user asks to implement UI from a selected Pixso frame. Returns compact semantic regions, layout, spacing, typography, colors, repeated patterns, assets, criticalDimensions, fidelityChecklist/verificationTargets for browser DOM QA, quality warnings, and recommended next calls. Do not use get_css_context before this.',
         inputSchema: getCodingContextSchema,
         annotations: { readOnlyHint: true, openWorldHint: false }
     }, async (input) => callPlugin(session, 'get_coding_context', input, codingContextTimeoutMs(input)));
     server.registerTool('get_css_context', {
         title: 'Get Pixso CSS context',
-        description: 'Secondary CSS-focused drill-down. Use only after get_coding_context, or when the user explicitly asks for CSS rules/declarations. Returns compact grouped CSS facts for key nodes/patterns, not full design understanding.',
+        description: 'Secondary CSS-focused drill-down. Use only after get_coding_context, or when the user explicitly asks for CSS rules/declarations. Returns compact grouped CSS facts plus criticalDimensions/productionGuidance for key nodes/patterns, not full design understanding.',
         inputSchema: getCssContextSchema,
         annotations: { readOnlyHint: true, openWorldHint: false }
     }, async (input) => callPlugin(session, 'get_css_context', input, cssContextTimeoutMs(input)));

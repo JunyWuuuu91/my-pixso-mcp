@@ -22,6 +22,11 @@ export interface PluginStatus {
             elapsedMs: number;
         }>;
     };
+    lastFailure?: {
+        command: string;
+        reason: 'timeout';
+        occurredAt: string;
+    };
 }
 export interface PluginCommand<TInput = unknown> {
     command: string;

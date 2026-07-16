@@ -19,6 +19,8 @@ The product rule is now explicit:
   - compact `nodeIndex` aliases;
   - semantic `regions`;
   - grouped `patterns`;
+  - `criticalDimensions`, `verificationTargets`, and `fidelityChecklist` for browser/DOM verification of panels, menus, buttons, rows, icons, typography, spacing, radius/shadow, overlay placement, and visible texts;
+  - `productionGuidance` with risk flags for unsafe production CSS translation;
   - compact layout/computed spacing sections;
   - typography CSS model with raw Pixso evidence preserved;
   - color/design-system summaries;
@@ -36,6 +38,7 @@ The product rule is now explicit:
   - `ruleGroups` for duplicate CSS patterns;
   - `keyRules` for important nodes/patterns;
   - `implementationCssText` plus compact omitted-declaration summaries in agent guidance mode;
+  - critical visual dimensions and production guidance are still returned alongside agent CSS when root/non-leaf width/height are omitted from copy-ready CSS;
   - `declarationMetadata` can be omitted for the compact agent default, or set to `compact`/`full` for audit detail;
   - `sourceConfidence` vs `implementationConfidence`;
   - omission stats for duplicate/default/non-key CSS rules.
@@ -44,12 +47,19 @@ The product rule is now explicit:
 
 ## Changed
 
+- The bridge now allows only one in-flight Pixso command. Overlapping scans fail fast instead of accumulating in the single-threaded plugin runtime.
+- A timed-out command quarantines and closes the unresponsive plugin connection, so the UI no longer stays falsely green while Pixso commands are stuck.
+- The plugin UI reports timeout recovery steps and rejects overlapping commands before they reach the Pixso main context.
+- Bounded selection scans now stop traversing when `maxNodes` is reached; wide frames no longer keep reading every remaining child after the output limit.
+- Unknown or expired Streamable HTTP session ids now return `404`, allowing MCP clients to reinitialize after a bridge restart instead of remaining stuck on a stale session.
+
 - Package version is `0.4.0`.
 - `get_coding_context` output is marked with `version: "0.4"`.
 - `get_coding_context` defaults to `profile="compact"`.
 - `get_coding_context` no longer includes the raw layout tree by default. Use `includeRawTree=true`, `get_node_tree`, or `inspect_node` when raw tree details are needed.
 - `get_css_context` defaults to compact key-scope output instead of a per-node CSS dump.
 - `get_coding_context` now recommends `get_css_context` with `guidanceProfile="agent"` so coding agents receive implementation-focused CSS and compact aggregate reason codes for omitted declarations.
+- `get_css_context` agent mode now warns when `implementationCssText` omits root/non-leaf dimensions and points agents to `criticalDimensions`/`fidelityChecklist` for visual fidelity checks.
 - CSS output now groups duplicate declaration sets and omits noisy defaults such as repeated `padding:0`, `gap:0`, `opacity:1` in compact mode.
 - CSS selectors default to short aliases such as `.px-n1`; aliases are mapped back to Pixso node ids through `nodeIndex`.
 - Asset classification is stricter: small text-dominant instances are not treated as icons, and large layout containers are ignored instead of exported.

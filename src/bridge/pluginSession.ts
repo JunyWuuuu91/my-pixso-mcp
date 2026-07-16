@@ -2,6 +2,10 @@ import { randomUUID } from 'node:crypto';
 import type { WebSocket } from 'ws';
 import type { PluginCommandResponse, PluginStatus, ServerConfig } from '../types.js';
 
+export const REPLACED_PLUGIN_SESSION_CLOSE_REASON = 'Replacing active Pixso plugin session';
+export const DUPLICATE_PLUGIN_SESSION_CLOSE_REASON = 'Another Pixso plugin session is already connected';
+export const UNRESPONSIVE_PLUGIN_SESSION_CLOSE_REASON = 'Pixso plugin stopped responding; reload the plugin window';
+
 interface PendingCall {
   resolve: (value: unknown) => void;
   reject: (reason: Error) => void;
@@ -17,6 +21,7 @@ export class PluginSession {
   private lastSeenAt?: Date;
   private pluginInfo?: Record<string, unknown>;
   private readonly pending = new Map<string, PendingCall>();
+  private lastFailure?: PluginStatus['lastFailure'];
 
   constructor(private readonly config: Pick<ServerConfig, 'pluginTimeoutMs'>) {}
 
@@ -30,6 +35,7 @@ export class PluginSession {
     this.connectedAt = new Date();
     this.lastSeenAt = new Date();
     this.pluginInfo = pluginInfo;
+    this.lastFailure = undefined;
 
     socket.on('close', () => {
       if (this.socket === socket) {
@@ -56,14 +62,24 @@ export class PluginSession {
       connectedAt: this.connectedAt?.toISOString(),
       lastSeenAt: this.lastSeenAt?.toISOString(),
       plugin: this.pluginInfo,
-      pending: this.pendingStatus()
+      pending: this.pendingStatus(),
+      lastFailure: this.lastFailure
     };
+  }
+
+  hasActiveConnection(): boolean {
+    return Boolean(this.socket && this.socket.readyState === this.socket.OPEN);
   }
 
   async call<TResult = unknown>(command: string, input: unknown, timeoutMs = this.config.pluginTimeoutMs): Promise<TResult> {
     const socket = this.socket;
     if (!socket || socket.readyState !== socket.OPEN) {
       throw new Error('Pixso plugin is not connected. Open Pixso, run the local plugin, and wait until it connects to the WebSocket bridge.');
+    }
+
+    const activeCall = this.pending.values().next().value as PendingCall | undefined;
+    if (activeCall) {
+      throw new Error(`Pixso plugin is busy with ${activeCall.command} for ${Date.now() - activeCall.startedAt}ms. Wait for it to finish before sending another command.`);
     }
 
     const id = randomUUID();
@@ -73,7 +89,15 @@ export class PluginSession {
     const promise = new Promise<TResult>((resolve, reject) => {
       const timeout = setTimeout(() => {
         this.pending.delete(id);
+        this.lastFailure = {
+          command,
+          reason: 'timeout',
+          occurredAt: new Date().toISOString()
+        };
         reject(new Error(`Pixso plugin command timed out after ${timeoutMs}ms: ${command}`));
+        if (this.socket === socket && socket.readyState === socket.OPEN) {
+          socket.close(1011, UNRESPONSIVE_PLUGIN_SESSION_CLOSE_REASON);
+        }
       }, timeoutMs);
 
       this.pending.set(id, {
@@ -121,7 +145,7 @@ export class PluginSession {
 
   private closeActiveSocket(): void {
     if (this.socket && this.socket.readyState === this.socket.OPEN) {
-      this.socket.close(1000, 'Replacing active Pixso plugin session');
+      this.socket.close(1000, REPLACED_PLUGIN_SESSION_CLOSE_REASON);
     }
   }
 

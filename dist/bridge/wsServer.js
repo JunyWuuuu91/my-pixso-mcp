@@ -1,7 +1,7 @@
 import { createServer } from 'node:http';
 import { URL } from 'node:url';
 import { WebSocketServer } from 'ws';
-import { PluginSession } from './pluginSession.js';
+import { DUPLICATE_PLUGIN_SESSION_CLOSE_REASON, PluginSession } from './pluginSession.js';
 function isObject(value) {
     return typeof value === 'object' && value !== null;
 }
@@ -39,8 +39,21 @@ export async function startBridgeServer(config, logger) {
             userAgent: request.headers['user-agent'],
             client: requestUrl.searchParams.get('client') ?? 'pixso-plugin'
         };
+        if (session.hasActiveConnection()) {
+            const activeConnectionId = session.getStatus().connectionId;
+            socket.close(1000, DUPLICATE_PLUGIN_SESSION_CLOSE_REASON);
+            logger.warn('Rejected duplicate Pixso plugin WS connection', { activeConnectionId });
+            return;
+        }
         const connectionId = session.attach(socket, pluginInfo);
         logger.info(`Pixso plugin connected to WS bridge`, { connectionId });
+        socket.on('close', (code, reason) => {
+            logger.info('Pixso plugin disconnected from WS bridge', {
+                connectionId,
+                code,
+                reason: reason.toString()
+            });
+        });
         socket.on('message', raw => {
             try {
                 const message = parseJson(raw);

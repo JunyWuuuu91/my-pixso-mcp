@@ -58,6 +58,9 @@
     'risky-visual': 'visual effect needs implementation review',
     'low-confidence': 'low-confidence inferred CSS'
   };
+  const CRITICAL_DIMENSION_ROLE_RE = /overlay|popover|popup|dropdown|menu|modal|dialog|button|toolbar|card|list-item|row|icon/i;
+  const CRITICAL_DIMENSION_NAME_RE = /overlay|popover|popup|dropdown|menu|modal|dialog|button|btn|toolbar|card|panel|surface|trigger|select|item|row|option|icon|кноп|меню|пункт|строк/i;
+  const CRITICAL_DIMENSION_LIMITS = { compact: 32, balanced: 72, deep: 120, verbose: 180 };
 
   let activeHeavyCommand = null;
   let nativeExportFailure = null;
@@ -259,7 +262,12 @@
     });
     const ctx = { count: 0, omitted: 0, warnings: [] };
     const selected = [];
-    for (const node of selection) {
+    for (let index = 0; index < selection.length; index += 1) {
+      if (ctx.count >= options.maxNodes) {
+        ctx.omitted += selection.length - index;
+        break;
+      }
+      const node = selection[index];
       selected.push(await serializeNode(node, options, ctx, 0, pathForNode(node)));
     }
     return {
@@ -424,7 +432,7 @@
     const response = compileCodingContext(snapshot, input || {});
     return applyOutputBudget(response, options.maxBytes, {
       profile: options.profile,
-      primarySections: ['screen', 'quality', 'nodeIndex', 'regions', 'patterns', 'typography', 'colors', 'assets', 'cssSummary', 'nextRecommendedCalls'],
+      primarySections: ['screen', 'quality', 'nodeIndex', 'regions', 'patterns', 'criticalDimensions', 'verificationTargets', 'fidelityChecklist', 'productionGuidance', 'typography', 'colors', 'assets', 'cssSummary', 'nextRecommendedCalls'],
       soft: options.profile !== 'verbose'
     });
   }
@@ -495,7 +503,7 @@
     const semanticRegions = buildSemanticRegions(treeResult.tree, flatNodes, computedLayout, assetManifest, aliases, options);
     const patterns = compileRepeatedPatterns(computedLayout.repeatedPatterns || [], flatNodes, aliases, assetManifest, options);
 
-    return {
+    const snapshot = {
       rootNode: node,
       options,
       treeResult,
@@ -526,6 +534,11 @@
         ...(assetManifest.some(item => item.confidence === 'low') ? ['Some asset candidates are low-confidence; export only high/medium-confidence assets or inspect them first.'] : [])
       ]))
     };
+    snapshot.criticalDimensions = buildCriticalDimensions(snapshot);
+    snapshot.verificationTargets = buildVerificationTargets(snapshot);
+    snapshot.fidelityChecklist = buildFidelityChecklist(snapshot);
+    snapshot.productionGuidance = buildProductionGuidance(snapshot);
+    return snapshot;
   }
 
   function compileCodingContext(snapshot, input) {
@@ -560,6 +573,10 @@
       nodeIndex: snapshot.nodeIndex,
       regions: snapshot.semanticRegions,
       patterns: snapshot.patterns,
+      criticalDimensions: snapshot.criticalDimensions,
+      verificationTargets: snapshot.verificationTargets,
+      fidelityChecklist: snapshot.fidelityChecklist,
+      productionGuidance: snapshot.productionGuidance,
       implementationSpec,
       implementationHints: buildImplementationHintsV4(snapshot),
       layout,
@@ -582,6 +599,7 @@
         assetCandidateCount: snapshot.assetManifest.length,
         repeatedPatternCount: snapshot.patterns.length,
         spacingAnalysisCount: (snapshot.computedLayout.spacingAnalysis || []).length,
+        criticalDimensionCount: (snapshot.criticalDimensions || []).length,
         regionCount: snapshot.semanticRegions.length
       },
       nextRecommendedCalls,
@@ -629,7 +647,7 @@
     const warnings = collectCssContextWarnings(snapshot.treeResult, snapshot.computedLayout, styleResolution, ruleSet.rules, ruleSet.omittedRuleCount)
       .concat(ruleSet.warnings || []);
     const response = buildCssContextResponse({ snapshot, options, styleResolution, ruleSet, warnings: Array.from(new Set(warnings)) });
-    return applyOutputBudget(response, options.maxBytes, { profile: options.mode, primarySections: ['screen', 'nodeIndex', 'implementationCssText', 'ruleGroups', 'keyRules', 'agentWarnings', 'omittedDeclarationSummary', 'warnings'], soft: options.mode !== 'verbose' });
+    return applyOutputBudget(response, options.maxBytes, { profile: options.mode, primarySections: ['screen', 'nodeIndex', 'implementationCssText', 'criticalDimensions', 'verificationTargets', 'productionGuidance', 'ruleGroups', 'keyRules', 'agentWarnings', 'omittedDeclarationSummary', 'warnings'], soft: options.mode !== 'verbose' });
   }
 
   function buildCssContextResponse(input) {
@@ -638,6 +656,7 @@
     const cssText = options.guidanceProfile === 'agent'
       ? ruleSet.implementationCssText
       : ruleSet.keyRules.map(rule => rule.cssText || rule.css).filter(Boolean).join('\n\n');
+    const productionGuidance = buildProductionGuidance(snapshot, ruleSet.omittedDeclarationSummary, options);
     const response = clean({
       version: CSS_CONTEXT_VERSION,
       role: 'secondary-css-drill-down',
@@ -657,6 +676,9 @@
       nodeIndex: pickNodeIndexForCss(snapshot.nodeIndex, ruleSet.keyRules, ruleSet.ruleGroups),
       cssText,
       implementationCssText: options.guidanceProfile === 'agent' ? cssText : undefined,
+      criticalDimensions: snapshot.criticalDimensions,
+      verificationTargets: snapshot.verificationTargets,
+      productionGuidance,
       ruleGroups: ruleSet.ruleGroups,
       keyRules: ruleSet.keyRules,
       rules: ruleSet.rules,
@@ -664,7 +686,7 @@
       omittedDeclarationSummary: ruleSet.omittedDeclarationSummary,
       omittedDeclarationSamples: ruleSet.omittedDeclarationSamples,
       reasonCatalog: ruleSet.reasonCatalog,
-      agentWarnings: ruleSet.agentWarnings,
+      agentWarnings: augmentCssAgentWarnings(ruleSet.agentWarnings, snapshot, ruleSet.omittedDeclarationSummary, options),
       warnings: input.warnings,
       omitted: ruleSet.omitted,
       stats: buildCssContextStats(snapshot.treeResult, snapshot.flatNodes, ruleSet.keyRules, styleResolution, ruleSet.omittedRuleCount),
@@ -1773,7 +1795,7 @@
     };
 
     if (options.detail === 'metadata') {
-      return clean({ ...base, childrenSummary: childrenSummaryOf(node) });
+      return clean({ ...base, childrenSummary: childrenSummaryOf(node, options.maxNodes) });
     }
 
     const serialized = {
@@ -1784,14 +1806,20 @@
       variables: options.detail === 'full' ? serializeVariables(node) : serializeVariablesCompact(node),
       component: await serializeComponentInfo(node, options),
       assets: serializeAssetHint(node, options),
-      childrenSummary: childrenSummaryOf(node)
+      childrenSummary: childrenSummaryOf(node, options.maxNodes)
     };
 
     if (level < options.depth && CONTAINER_TYPES.has(node.type)) {
       const rawChildren = childrenOf(node).filter(child => options.includeHidden || safeGet(child, 'visible', true) !== false);
       const children = [];
-      for (const child of rawChildren) {
+      for (let index = 0; index < rawChildren.length; index += 1) {
+        if (ctx.count >= options.maxNodes) {
+          ctx.omitted += rawChildren.length - index;
+          break;
+        }
+        const child = rawChildren[index];
         if (!options.includeVectors && VECTOR_TYPES.has(child.type)) {
+          ctx.count += 1;
           const vectorSummary = summarizeNode(child, true);
           vectorSummary.assets = serializeAssetHint(child, options);
           children.push(clean(vectorSummary));
@@ -2132,21 +2160,32 @@
     };
   }
 
-  function childrenSummaryOf(node) {
+  function childrenSummaryOf(node, maxChildren) {
     const children = childrenOf(node);
+    const scanLimit = clampInt(maxChildren, 1, 500, 200);
+    const sampledChildren = children.slice(0, scanLimit);
     const types = {};
     let visibleCount = 0;
     let textNodeCount = 0;
     let instanceCount = 0;
     let assetCandidateCount = 0;
-    for (const child of children) {
+    for (const child of sampledChildren) {
       types[child.type] = (types[child.type] || 0) + 1;
       if (safeGet(child, 'visible', true) !== false) visibleCount += 1;
       if (child.type === 'TEXT') textNodeCount += 1;
       if (child.type === 'INSTANCE') instanceCount += 1;
       if (serializeAssetHint(child, { includeImages: true })) assetCandidateCount += 1;
     }
-    return clean({ count: children.length, visibleCount, types, textNodeCount, instanceCount, assetCandidateCount });
+    return clean({
+      count: children.length,
+      sampledCount: sampledChildren.length,
+      truncated: sampledChildren.length < children.length ? true : undefined,
+      visibleCount,
+      types,
+      textNodeCount,
+      instanceCount,
+      assetCandidateCount
+    });
   }
 
   function currentSelection() {
@@ -3499,6 +3538,334 @@
     return checks.slice(0, 40);
   }
 
+  function buildCriticalDimensions(snapshot) {
+    const flatNodes = snapshot.flatNodes || [];
+    const parentById = buildSerializedParentMap(snapshot.tree);
+    const spacingByParentId = new Map((snapshot.computedLayout.spacingAnalysis || []).map(item => [item.parentNodeId, item]));
+    const assetByNode = new Map((snapshot.assetManifest || []).map(item => [item.nodeId, item]));
+    const rootId = snapshot.tree && snapshot.tree.id;
+    const limit = criticalDimensionLimit(snapshot.options);
+    const candidates = [];
+
+    for (const node of flatNodes) {
+      const parent = parentById.get(node.id);
+      const asset = assetByNode.get(node.id);
+      const info = criticalDimensionInfo(node, parent, asset, rootId);
+      if (!info) continue;
+      const spacing = spacingByParentId.get(node.id);
+      candidates.push({
+        score: info.score,
+        item: clean({
+          node: snapshot.aliases.get(node.id) || node.id,
+          nodeId: node.id,
+          name: node.name,
+          type: node.type,
+          role: info.role,
+          reason: info.reason,
+          source: 'Pixso structural bounds',
+          checks: info.checks,
+          bounds: compactBounds(node.bounds),
+          size: sizeText(node.bounds),
+          parent: parent ? clean({ node: snapshot.aliases.get(parent.id) || parent.id, nodeId: parent.id, name: parent.name, role: compactRoleGuess(parent) }) : undefined,
+          layout: compactLayoutFact(node, spacing),
+          surface: compactSurfaceFact(node),
+          text: node.type === 'TEXT' && node.text ? clean({ value: node.text.preview, css: node.text.css, role: node.text.roleGuess }) : undefined,
+          asset: asset ? clean({ kind: asset.kind, usageHint: asset.usageHint, recommendedAction: asset.recommendedAction }) : undefined
+        })
+      });
+    }
+
+    candidates.sort((a, b) => b.score - a.score || String(a.item.nodeId).localeCompare(String(b.item.nodeId)));
+    return dedupeObjectsByKey(candidates.map(item => item.item), item => item.nodeId).slice(0, limit);
+  }
+
+  function criticalDimensionLimit(options) {
+    const profile = options && (options.profile || options.mode) || 'compact';
+    return CRITICAL_DIMENSION_LIMITS[profile] || CRITICAL_DIMENSION_LIMITS.compact;
+  }
+
+  function criticalDimensionInfo(node, parent, asset, rootId) {
+    if (!node || !node.id || !hasUsableBounds(node)) return undefined;
+    const role = compactRoleGuess(node);
+    const parentCritical = isCriticalUiNode(parent);
+    const ownCritical = isCriticalUiNode(node) || isCriticalAssetNode(node, asset);
+    const isRoot = node.id === rootId;
+    if (!isRoot && !ownCritical && !parentCritical) return undefined;
+
+    const checks = dimensionChecksForNode(node, parent, asset);
+    const critical = ownCritical || parentCritical;
+    let score = isRoot ? 70 : 0;
+    if (ownCritical) score += 80;
+    if (parentCritical) score += 45;
+    if (/row|item|option/i.test(`${role} ${node.name || ''}`)) score += 25;
+    if (isCriticalAssetNode(node, asset)) score += 25;
+    if (node.type === 'TEXT') score -= 10;
+    return {
+      role,
+      reason: critical ? 'critical visual dimension' : 'root measurement baseline',
+      checks,
+      score
+    };
+  }
+
+  function hasUsableBounds(node) {
+    const bounds = node && node.bounds || {};
+    return Number.isFinite(Number(bounds.width)) && Number.isFinite(Number(bounds.height)) && Number(bounds.width) > 0 && Number(bounds.height) > 0;
+  }
+
+  function isCriticalUiNode(node) {
+    if (!node) return false;
+    const role = compactRoleGuess(node);
+    const name = String(node.name || '');
+    return CRITICAL_DIMENSION_ROLE_RE.test(role) || CRITICAL_DIMENSION_NAME_RE.test(name);
+  }
+
+  function isCriticalAssetNode(node, asset) {
+    const text = `${node && node.name || ''} ${node && node.type || ''} ${asset && asset.kind || ''} ${asset && asset.usageHint || ''}`;
+    return /icon|logo|svg|vector/i.test(text);
+  }
+
+  function dimensionChecksForNode(node, parent, asset) {
+    const checks = ['width', 'height'];
+    const text = `${compactRoleGuess(node)} ${node.name || ''}`.toLowerCase();
+    const parentText = `${compactRoleGuess(parent)} ${parent && parent.name || ''}`.toLowerCase();
+    if (/overlay|popover|popup|dropdown|menu|modal|dialog|panel/.test(text)) checks.push('panel-bounds');
+    if (/trigger/.test(text)) checks.push('trigger-size');
+    if (/row|item|option/.test(text) || /menu|dropdown|popover/.test(parentText)) checks.push('row-height');
+    if (/button/.test(text)) checks.push('button-size');
+    if (isCriticalAssetNode(node, asset)) checks.push('icon-size');
+    if (node.layout && (node.layout.padding || node.layout.itemSpacing != null)) checks.push('padding-gap');
+    if (hasSurfaceCheck(node)) checks.push('radius-shadow');
+    return Array.from(new Set(checks));
+  }
+
+  function hasSurfaceCheck(node) {
+    const surface = compactSurfaceFact(node);
+    return Boolean(surface && (surface.radius || surface.effects));
+  }
+
+  function sizeText(bounds) {
+    if (!bounds) return undefined;
+    const width = roundNumber(bounds.width);
+    const height = roundNumber(bounds.height);
+    return width != null && height != null ? `${width}x${height}` : undefined;
+  }
+
+  function buildVerificationTargets(snapshot) {
+    const criticalDimensions = snapshot.criticalDimensions || [];
+    const parentById = buildSerializedParentMap(snapshot.tree);
+    const nodeById = new Map((snapshot.flatNodes || []).map(node => [node.id, node]));
+    const bounds = criticalDimensions
+      .filter(item => /panel-bounds|button-size|trigger-size|row-height/.test((item.checks || []).join(' ')))
+      .slice(0, 18)
+      .map(item => clean({ nodeId: item.nodeId, node: item.node, name: item.name, role: item.role, checks: item.checks, bounds: item.bounds }));
+    const itemCounts = buildItemCountTargets(snapshot, criticalDimensions, nodeById);
+    const rowHeights = criticalDimensions
+      .filter(item => (item.checks || []).includes('row-height'))
+      .slice(0, 16)
+      .map(item => clean({ nodeId: item.nodeId, name: item.name, expectedHeight: item.bounds && item.bounds.height, bounds: item.bounds }));
+    const typography = ((snapshot.typography && snapshot.typography.textNodes) || [])
+      .slice(0, 16)
+      .map(item => clean({ nodeId: item.nodeId, nodeName: item.nodeName, text: item.text, css: item.css, bounds: compactBounds(item.bounds) }));
+    const icons = criticalDimensions
+      .filter(item => (item.checks || []).includes('icon-size'))
+      .slice(0, 12)
+      .map(item => clean({ nodeId: item.nodeId, name: item.name, expectedSize: item.size, bounds: item.bounds }));
+    const surfaces = criticalDimensions
+      .filter(item => item.surface && (item.surface.radius || item.surface.effects))
+      .slice(0, 12)
+      .map(item => clean({ nodeId: item.nodeId, name: item.name, radius: item.surface.radius, effects: item.surface.effects, bounds: item.bounds }));
+    const spacing = criticalDimensions
+      .filter(item => item.layout && (item.layout.padding || item.layout.gap != null || item.layout.counterAxisGap != null))
+      .slice(0, 12)
+      .map(item => clean({ nodeId: item.nodeId, name: item.name, padding: item.layout.padding, gap: item.layout.gap, counterAxisGap: item.layout.counterAxisGap }));
+    const overlayPosition = buildOverlayPositionTarget(snapshot, criticalDimensions, nodeById);
+    const visibleTexts = collectVisibleTextTargets(snapshot, parentById).slice(0, 24);
+
+    return clean({
+      role: 'browser-dom-verification-targets',
+      usageHint: 'After implementation, compare browser/DOM metrics against these structural Pixso facts; do not paste this as CSS.',
+      bounds,
+      itemCounts,
+      rowHeights,
+      typography,
+      icons,
+      spacing,
+      surfaces,
+      overlayPosition,
+      visibleTexts
+    });
+  }
+
+  function buildItemCountTargets(snapshot, criticalDimensions, nodeById) {
+    const targets = [];
+    const criticalIds = new Set((criticalDimensions || []).map(item => item.nodeId));
+    for (const item of criticalDimensions || []) {
+      const node = nodeById.get(item.nodeId);
+      if (!node || !Array.isArray(node.children) || !node.children.length) continue;
+      const roleText = `${item.role || ''} ${item.name || ''}`.toLowerCase();
+      if (!/overlay|popover|popup|dropdown|menu|modal|dialog|panel|card/.test(roleText)) continue;
+      const children = node.children.filter(child => child && child.type !== 'TEXT' && hasUsableBounds(child));
+      const probableItems = children.filter(child => {
+        const text = `${compactRoleGuess(child)} ${child.name || ''}`.toLowerCase();
+        return /row|item|option|button|card|list/.test(text) || criticalIds.has(child.id);
+      });
+      const counted = probableItems.length ? probableItems : children;
+      if (!counted.length) continue;
+      targets.push(clean({
+        nodeId: item.nodeId,
+        name: item.name,
+        expectedVisibleItemCount: counted.length,
+        itemNodeIds: counted.map(child => child.id).slice(0, 20),
+        source: 'direct visible children in Pixso structural tree'
+      }));
+    }
+    return targets.slice(0, 10);
+  }
+
+  function buildOverlayPositionTarget(snapshot, criticalDimensions, nodeById) {
+    const nodes = (criticalDimensions || []).map(item => nodeById.get(item.nodeId)).filter(Boolean);
+    const overlay = nodes
+      .filter(node => /overlay|popover|popup|dropdown|menu|modal|dialog|panel/i.test(`${compactRoleGuess(node)} ${node.name || ''}`) && node.id !== (snapshot.tree && snapshot.tree.id))
+      .sort((a, b) => overlayPanelScore(b) - overlayPanelScore(a))[0];
+    const trigger = nodes.find(node => /trigger|button|select/i.test(`${compactRoleGuess(node)} ${node.name || ''}`));
+    if (!overlay || !trigger || !overlay.bounds || !trigger.bounds) return undefined;
+    return clean({
+      relationship: 'overlay-panel-relative-to-trigger',
+      triggerNodeId: trigger.id,
+      triggerName: trigger.name,
+      overlayNodeId: overlay.id,
+      overlayName: overlay.name,
+      expectedOffset: {
+        x: roundNumber(Number(overlay.bounds.x || 0) - Number(trigger.bounds.x || 0)),
+        y: roundNumber(Number(overlay.bounds.y || 0) - (Number(trigger.bounds.y || 0) + Number(trigger.bounds.height || 0)))
+      },
+      triggerBounds: compactBounds(trigger.bounds),
+      overlayBounds: compactBounds(overlay.bounds)
+    });
+  }
+
+  function overlayPanelScore(node) {
+    const text = `${compactRoleGuess(node)} ${node && node.name || ''}`.toLowerCase();
+    let score = 0;
+    if (/panel|surface|popover|popup|modal|dialog|dropdown/.test(text)) score += 10;
+    if (/menu/.test(text)) score += 4;
+    if (/row|item|option|button|trigger/.test(text)) score -= 8;
+    const bounds = node && node.bounds || {};
+    const area = Number(bounds.width || 0) * Number(bounds.height || 0);
+    if (area > 0) score += Math.min(4, area / 10000);
+    return score;
+  }
+
+  function collectVisibleTextTargets(snapshot, parentById) {
+    const typographyNodes = ((snapshot.typography && snapshot.typography.textNodes) || []).map(item => ({
+      nodeId: item.nodeId,
+      text: item.text,
+      nodeName: item.nodeName,
+      bounds: compactBounds(item.bounds)
+    }));
+    if (typographyNodes.length) return typographyNodes;
+    return (snapshot.flatNodes || [])
+      .filter(node => node && node.type === 'TEXT' && node.text && node.text.preview)
+      .map(node => {
+        const parent = parentById.get(node.id);
+        return clean({
+          nodeId: node.id,
+          text: node.text.preview,
+          nodeName: node.name,
+          parentNodeId: parent && parent.id,
+          bounds: compactBounds(node.bounds)
+        });
+      });
+  }
+
+  function buildFidelityChecklist(snapshot) {
+    const targets = snapshot.verificationTargets || {};
+    const requiredChecks = [];
+    if (targets.bounds) requiredChecks.push({ check: 'panel-bounds', expected: targets.bounds });
+    if (targets.itemCounts) requiredChecks.push({ check: 'item-count', expected: targets.itemCounts });
+    if (targets.rowHeights) requiredChecks.push({ check: 'row-height', expected: targets.rowHeights });
+    if (targets.typography) requiredChecks.push({ check: 'typography', expected: targets.typography });
+    if (targets.icons) requiredChecks.push({ check: 'icon-size', expected: targets.icons });
+    if (targets.spacing) requiredChecks.push({ check: 'padding-gap', expected: targets.spacing });
+    if (targets.surfaces) requiredChecks.push({ check: 'radius-shadow', expected: targets.surfaces });
+    if (targets.overlayPosition) requiredChecks.push({ check: 'overlay-position', expected: targets.overlayPosition });
+    if (targets.visibleTexts) requiredChecks.push({ check: 'visible-texts', expected: targets.visibleTexts.map(item => item.text).filter(Boolean) });
+    return clean({
+      role: 'browser-dom-qa-checklist',
+      usageHint: 'Run these checks in the implemented app before visual sign-off. This checklist is evidence for DOM/browser QA, not generated CSS.',
+      requiredChecks,
+      passCriteria: 'Implemented DOM bounds, text, typography, icons, spacing and overlay placement match the structural Pixso facts within the product tolerance.'
+    });
+  }
+
+  function buildProductionGuidance(snapshot, omittedDeclarationSummary, options) {
+    const byReason = omittedDeclarationSummary && omittedDeclarationSummary.byReason || {};
+    const risks = [
+      productionRisk('get-css-context-secondary', 'high', 'Use get_coding_context as the primary design scan. get_css_context is only a secondary CSS drill-down.'),
+      productionRisk('no-important', 'high', 'Do not add !important to force Pixso evidence over the application design system. Fix selector scope or component props instead.'),
+      productionRisk('no-deep-ui-kit-selectors', 'high', 'Do not target internal UI-kit DOM with deep selectors; prefer public component props, tokens, slots or local wrapper styles.'),
+      productionRisk('no-blind-absolute-coordinates', 'medium', 'Do not blindly copy x/y coordinates into production CSS. Use layout, item count, gap and DOM measurements first.')
+    ];
+
+    if ((snapshot.criticalDimensions || []).length) {
+      risks.push(productionRisk('critical-dimensions-dom-check', 'high', 'criticalDimensions are visual facts even when implementationCssText omits width/height. Verify them in browser DOM.'));
+      risks.push(productionRisk('ui-kit-override-risk', 'high', 'Menus, popovers, buttons and cards often come from a UI kit. Override through supported APIs before writing CSS against internals.'));
+    }
+    if (hasFreeformLayoutRisk(snapshot)) {
+      risks.push(productionRisk('raw-layer-coordinates-risk', 'medium', 'Freeform or inferred layout was detected. Treat raw layer coordinates as evidence, not the final layout model.'));
+    }
+    if (hasFractionalMeasurementRisk(snapshot) || byReason.fractional) {
+      risks.push(productionRisk('fractional-px-risk', 'medium', 'Fractional px values need a reason. Round where product layout allows, and verify visually when keeping them.'));
+    }
+    if (((snapshot.typography && snapshot.typography.textNodes) || []).length) {
+      risks.push(productionRisk('typography-dom-check', 'medium', 'Do not rely on inherited typography by assumption; verify rendered DOM font size, line height, weight and visible text.'));
+    }
+    if (options && options.guidanceProfile === 'agent' && (byReason['root-size'] || byReason['fixed-container'])) {
+      risks.push(productionRisk('implementation-css-incomplete-for-fidelity', 'high', 'Agent CSS omits some root/non-leaf dimensions. Compare implementationCssText with criticalDimensions and fidelityChecklist.'));
+    }
+
+    return clean({
+      role: 'production-guidance',
+      usageHint: 'Risk flags for coding agents turning Pixso facts into production code.',
+      risks: dedupeObjectsByKey(risks, item => item.code).slice(0, 12),
+      requiredFollowUp: (snapshot.criticalDimensions || []).length ? 'Compare browser DOM metrics with fidelityChecklist/criticalDimensions before marking visual work complete.' : undefined
+    });
+  }
+
+  function productionRisk(code, severity, guidance) {
+    return { code, severity, guidance };
+  }
+
+  function hasFreeformLayoutRisk(snapshot) {
+    return (snapshot.computedLayout && snapshot.computedLayout.spacingAnalysis || []).some(item => item && item.detectedPattern === 'freeform-or-absolute');
+  }
+
+  function hasFractionalMeasurementRisk(snapshot) {
+    return (snapshot.flatNodes || []).some(node => {
+      const bounds = node && node.bounds || {};
+      return ['x', 'y', 'width', 'height'].some(key => isMeaningfulFractionalNumber(bounds[key]));
+    });
+  }
+
+  function isMeaningfulFractionalNumber(value) {
+    if (typeof value !== 'number' || !Number.isFinite(value)) return false;
+    return Math.abs(value - Math.round(value)) >= 0.05;
+  }
+
+  function augmentCssAgentWarnings(warnings, snapshot, omittedDeclarationSummary, options) {
+    const out = Array.isArray(warnings) ? warnings.slice() : [];
+    if (!options || options.guidanceProfile !== 'agent') return out.length ? out : undefined;
+    const byReason = omittedDeclarationSummary && omittedDeclarationSummary.byReason || {};
+    if (byReason['root-size'] || byReason['fixed-container']) {
+      out.push('dimension-omissions: implementationCssText omits root/non-leaf width/height; CSS is incomplete for visual fidelity, compare criticalDimensions/fidelityChecklist in browser DOM.');
+    }
+    if ((snapshot.criticalDimensions || []).length) {
+      out.push(`critical-dimensions: ${snapshot.criticalDimensions.length} structural visual dimensions are provided outside implementationCssText.`);
+    }
+    return Array.from(new Set(out)).slice(0, 8);
+  }
+
   function regionRoleGuess(node) {
     const name = String(node.name || '').toLowerCase();
     if (/side|sidebar|nav|menu|бар/.test(name)) return 'navigation/sidebar';
@@ -3996,6 +4363,9 @@
       shell: snapshot.semanticRegions.slice(0, 8),
       regions: snapshot.semanticRegions,
       repeatedPatterns: snapshot.patterns,
+      criticalDimensions: (snapshot.criticalDimensions || []).slice(0, 16),
+      verificationTargets: snapshot.verificationTargets,
+      fidelityChecklist: snapshot.fidelityChecklist,
       cssModel: (snapshot.computedLayout.spacingAnalysis || []).slice(0, 24).map(item => clean({ node: snapshot.aliases.get(item.parentNodeId) || item.parentNodeId, nodeId: item.parentNodeId, name: item.parentName, pattern: item.detectedPattern, css: item.cssSuggestion, gapReliability: item.measured && item.measured.gapReliability })),
       measurementChecklist: buildMeasurementChecklist(snapshot.tree, snapshot.computedLayout, snapshot.typography, snapshot.colors, snapshot.assetManifest),
       implementationOrder: ['shell/regions', 'repeated patterns', 'typography and colors', 'assets/icons', 'visual screenshot QA']
@@ -4008,6 +4378,7 @@
     if (snapshot.patterns && snapshot.patterns.length) hints.unshift('Use patterns to create reusable React components/data arrays instead of copying repeated markup.');
     if (snapshot.semanticRegions && snapshot.semanticRegions.length) hints.unshift('Implement from semantic regions first; nodeIndex aliases map compact region references back to Pixso node ids.');
     if (snapshot.computedLayout.spacingAnalysis && snapshot.computedLayout.spacingAnalysis.length) hints.unshift('Use spacingAnalysis/computedLayout for measured gaps and grid/flex suggestions; raw x/y are fallback evidence, not always the final CSS model.');
+    if (snapshot.fidelityChecklist) hints.unshift('Before marking visual work complete, compare browser DOM metrics with fidelityChecklist and criticalDimensions.');
     hints.push('Separate Pixso design facts from app behavior/API assumptions.');
     return Array.from(new Set(hints));
   }

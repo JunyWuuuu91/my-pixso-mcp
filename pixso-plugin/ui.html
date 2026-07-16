@@ -59,6 +59,7 @@
       let reconnectTimer = null;
       let reconnectEnabled = true;
       let commandCount = 0;
+      let commandInFlight = null;
 
       function setStatus(text, ok) {
         statusEl.textContent = text;
@@ -103,7 +104,24 @@
           ws.send(JSON.stringify({ type: 'hello', plugin: { name: 'Pixso Advanced MCP', uiConnectedAt: new Date().toISOString() } }));
         };
 
-        ws.onclose = () => {
+        ws.onclose = event => {
+          const closeReason = String(event.reason || '');
+          const duplicateSessionReasons = [
+            'Replacing active Pixso plugin session',
+            'Another Pixso plugin session is already connected'
+          ];
+          if (closeReason.includes('Pixso plugin stopped responding')) {
+            reconnectEnabled = false;
+            ws = null;
+            setStatus('The last Pixso command timed out. Close and reopen this plugin window before reconnecting; the bridge rejected further commands to prevent a hang loop.', false);
+            return;
+          }
+          if (duplicateSessionReasons.some(reason => closeReason.includes(reason))) {
+            reconnectEnabled = false;
+            ws = null;
+            setStatus('Disconnected because another Pixso Advanced MCP plugin window connected. Close duplicate plugin windows, then press Connect in the one window you want to use.', false);
+            return;
+          }
           setStatus('Disconnected from the local bridge. Retrying while this window stays open...', false);
           ws = null;
           scheduleReconnect();
@@ -117,7 +135,17 @@
           try {
             const message = JSON.parse(event.data);
             if (!message || typeof message.id !== 'string') return;
+            if (commandInFlight) {
+              ws.send(JSON.stringify({
+                id: message.id,
+                ok: false,
+                error: `Pixso plugin is still executing ${commandInFlight.command}. Wait for it to finish before sending another command.`
+              }));
+              setStatus(`Connected. Still executing ${commandInFlight.command}; rejected overlapping ${message.command}.`, false);
+              return;
+            }
             commandCount += 1;
+            commandInFlight = { id: message.id, command: message.command, startedAt: Date.now() };
             setStatus(`Connected. Executing command #${commandCount}: ${message.command}`, true);
             parent.postMessage({ pluginMessage: { type: 'mcp-command', message } }, '*');
           } catch (error) {
@@ -138,6 +166,8 @@
       window.onmessage = event => {
         const pluginMessage = event.data && event.data.pluginMessage;
         if (!pluginMessage || pluginMessage.type !== 'mcp-response') return;
+        if (!commandInFlight || pluginMessage.response.id !== commandInFlight.id) return;
+        commandInFlight = null;
         if (!ws || ws.readyState !== WebSocket.OPEN) {
           setStatus('Command finished, but the local bridge is no longer connected.', false);
           return;

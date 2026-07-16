@@ -222,6 +222,182 @@ function createDesignFixture() {
     counterAxisSpacing: 0,
     children: [cssDefaultChild]
   });
+  const archiveText = createNode({
+    id: 'menu-archive-text',
+    type: 'TEXT',
+    name: 'Archive Label',
+    characters: 'В архив',
+    x: 40,
+    y: 12,
+    width: 110,
+    height: 24,
+    fontName: { family: 'Test Sans', style: 'Semibold' },
+    fontSize: 18,
+    lineHeight: { unit: 'PIXELS', value: 24 },
+    letterSpacing: { unit: 'PERCENT', value: 0 },
+    fills: [{ type: 'SOLID', color: { r: 0.03, g: 0.03, b: 0.03 }, opacity: 1 }]
+  });
+  const archiveIcon = createNode({
+    id: 'menu-archive-icon',
+    type: 'VECTOR',
+    name: 'Archive Icon',
+    x: 12,
+    y: 12,
+    width: 20,
+    height: 20,
+    exportSettings: [{ format: 'SVG' }]
+  });
+  const archiveRow = createNode({
+    id: 'menu-archive-row',
+    type: 'FRAME',
+    name: 'Menu Item Archive',
+    x: 8,
+    y: 8,
+    width: 264,
+    height: 48,
+    layoutMode: 'HORIZONTAL',
+    layoutWrap: 'NO_WRAP',
+    primaryAxisSizingMode: 'FIXED',
+    counterAxisSizingMode: 'FIXED',
+    primaryAxisAlignItems: 'MIN',
+    counterAxisAlignItems: 'CENTER',
+    paddingLeft: 12,
+    paddingRight: 12,
+    paddingTop: 12,
+    paddingBottom: 12,
+    itemSpacing: 12,
+    children: [archiveIcon, archiveText]
+  });
+  const deleteText = createNode({
+    id: 'menu-delete-text',
+    type: 'TEXT',
+    name: 'Delete Label',
+    characters: 'Удалить',
+    x: 40,
+    y: 12,
+    width: 110,
+    height: 24,
+    fontName: { family: 'Test Sans', style: 'Semibold' },
+    fontSize: 18,
+    lineHeight: { unit: 'PIXELS', value: 24 },
+    letterSpacing: { unit: 'PERCENT', value: 0 },
+    fills: [{ type: 'SOLID', color: { r: 0.55, g: 0.04, b: 0.04 }, opacity: 1 }]
+  });
+  const deleteIcon = createNode({
+    id: 'menu-delete-icon',
+    type: 'VECTOR',
+    name: 'Delete Icon',
+    x: 12,
+    y: 12,
+    width: 20,
+    height: 20,
+    exportSettings: [{ format: 'SVG' }]
+  });
+  const deleteRow = createNode({
+    id: 'menu-delete-row',
+    type: 'FRAME',
+    name: 'Menu Item Delete',
+    x: 8,
+    y: 60,
+    width: 264,
+    height: 48,
+    layoutMode: 'HORIZONTAL',
+    layoutWrap: 'NO_WRAP',
+    primaryAxisSizingMode: 'FIXED',
+    counterAxisSizingMode: 'FIXED',
+    primaryAxisAlignItems: 'MIN',
+    counterAxisAlignItems: 'CENTER',
+    paddingLeft: 12,
+    paddingRight: 12,
+    paddingTop: 12,
+    paddingBottom: 12,
+    itemSpacing: 12,
+    children: [deleteIcon, deleteText]
+  });
+  const menuPanel = createNode({
+    id: 'menu-panel',
+    type: 'FRAME',
+    name: 'Popover Menu Panel',
+    x: 96,
+    y: 60,
+    width: 280,
+    height: 116,
+    layoutMode: 'VERTICAL',
+    layoutWrap: 'NO_WRAP',
+    primaryAxisSizingMode: 'FIXED',
+    counterAxisSizingMode: 'FIXED',
+    primaryAxisAlignItems: 'MIN',
+    counterAxisAlignItems: 'MIN',
+    paddingLeft: 8,
+    paddingRight: 8,
+    paddingTop: 8,
+    paddingBottom: 8,
+    itemSpacing: 4,
+    fills: [{ type: 'SOLID', color: { r: 1, g: 1, b: 1 }, opacity: 1 }],
+    cornerRadius: 16,
+    topLeftRadius: 16,
+    topRightRadius: 16,
+    bottomRightRadius: 16,
+    bottomLeftRadius: 16,
+    effects: [{
+      type: 'DROP_SHADOW',
+      color: { r: 0, g: 0, b: 0, a: 0.18 },
+      offset: { x: 0, y: 10 },
+      radius: 28,
+      spread: 0,
+      visible: true
+    }],
+    children: [archiveRow, deleteRow]
+  });
+  const triggerText = createNode({
+    id: 'menu-trigger-text',
+    type: 'TEXT',
+    name: 'Trigger Label',
+    characters: 'Действия',
+    x: 16,
+    y: 6,
+    width: 88,
+    height: 22,
+    fontName: { family: 'Test Sans', style: 'Medium' },
+    fontSize: 16,
+    lineHeight: { unit: 'PIXELS', value: 22 },
+    fills: [{ type: 'SOLID', color: { r: 0.02, g: 0.02, b: 0.02 }, opacity: 1 }]
+  });
+  const menuTrigger = createNode({
+    id: 'menu-trigger',
+    type: 'FRAME',
+    name: 'Dropdown Trigger Button',
+    x: 96,
+    y: 20,
+    width: 148,
+    height: 36,
+    layoutMode: 'HORIZONTAL',
+    layoutWrap: 'NO_WRAP',
+    primaryAxisSizingMode: 'FIXED',
+    counterAxisSizingMode: 'FIXED',
+    primaryAxisAlignItems: 'MIN',
+    counterAxisAlignItems: 'CENTER',
+    paddingLeft: 16,
+    paddingRight: 16,
+    paddingTop: 7,
+    paddingBottom: 7,
+    itemSpacing: 8,
+    fills: [{ type: 'SOLID', color: { r: 0.95, g: 0.96, b: 0.98 }, opacity: 1 }],
+    strokes: [{ type: 'SOLID', color: { r: 0.72, g: 0.75, b: 0.82 }, opacity: 1 }],
+    strokeWeight: 1,
+    cornerRadius: 10,
+    children: [triggerText]
+  });
+  const menuFrame = createNode({
+    id: 'opened-menu-frame',
+    type: 'FRAME',
+    name: 'Opened Dropdown Menu',
+    x: 0,
+    y: 1400,
+    width: 420,
+    height: 220,
+    children: [menuTrigger, menuPanel]
+  });
   const complexExportFrame = createNode({
     id: 'complex-export-frame',
     type: 'FRAME',
@@ -258,7 +434,7 @@ function createDesignFixture() {
     height: 1080,
     children: []
   });
-  const page = createNode({ id: 'page', type: 'PAGE', name: 'Page', children: [frame, duplicateFrame, cssFrame, cssDefaults, complexExportFrame], selection: [frame] });
+  const page = createNode({ id: 'page', type: 'PAGE', name: 'Page', children: [frame, duplicateFrame, cssFrame, cssDefaults, menuFrame, complexExportFrame], selection: [frame] });
   const root = createNode({ id: 'root', type: 'DOCUMENT', name: 'Root', children: [page] });
   return { root, page, exportCalls };
 }
@@ -358,6 +534,45 @@ describe('Pixso plugin extraction behavior', () => {
     expect(result.layout.computedLayout.layoutWarnings).toEqual(expect.arrayContaining([
       expect.objectContaining({ nodeId: 'canvas', issue: expect.stringContaining('negative measured gaps') })
     ]));
+  });
+
+  it('stops selection traversal when maxNodes is reached', async () => {
+    const { callPlugin, fixture } = createPluginHarness();
+    let nameReads = 0;
+    const children = Array.from({ length: 500 }, (_, index) => {
+      const child = createNode({
+        id: `wide-child-${index}`,
+        type: 'RECTANGLE',
+        name: `Wide child ${index}`
+      });
+      Object.defineProperty(child, 'name', {
+        configurable: true,
+        get() {
+          nameReads += 1;
+          return `Wide child ${index}`;
+        }
+      });
+      return child;
+    });
+    const wideFrame = createNode({
+      id: 'wide-frame',
+      type: 'FRAME',
+      name: 'Wide frame',
+      children
+    });
+    for (const child of children) child.parent = wideFrame;
+    fixture.page.selection = [wideFrame];
+
+    const result = await callPlugin('get_selection_context', {
+      depth: 1,
+      detail: 'summary',
+      maxNodes: 10
+    });
+
+    expect(result.nodeCount).toBe(10);
+    expect(result.truncated).toBe(true);
+    expect(result.selected[0].children).toHaveLength(9);
+    expect(nameReads).toBeLessThan(50);
   });
 
   it('keeps layout containers out of the export queue while preserving icon candidates', async () => {
@@ -623,6 +838,120 @@ describe('Pixso plugin extraction behavior', () => {
     const fractionalRule = result.rules.find(rule => rule.nodeId === 'css-fractional-leaf');
     expect(fractionalRule.declarations).toEqual(expect.arrayContaining([
       expect.objectContaining({ property: 'width', value: '21.3px', usage: 'adapt', reason: 'fractional' })
+    ]));
+  });
+
+  it('returns DOM fidelity targets and critical dimensions for an opened menu', async () => {
+    const { callPlugin } = createPluginHarness();
+    const result = await callPlugin('get_coding_context', {
+      nodeId: 'opened-menu-frame',
+      profile: 'compact',
+      includeAssets: false,
+      includeTokens: false,
+      includeComponentHints: false,
+      maxNodes: 120,
+      maxTextChars: 1000
+    });
+
+    const criticalById = new Map(result.criticalDimensions.map(item => [item.nodeId, item]));
+    expect(criticalById.get('menu-panel')).toEqual(expect.objectContaining({
+      reason: 'critical visual dimension',
+      bounds: expect.objectContaining({ width: 280, height: 116 }),
+      checks: expect.arrayContaining(['panel-bounds', 'padding-gap', 'radius-shadow'])
+    }));
+    expect(criticalById.get('menu-archive-row')).toEqual(expect.objectContaining({
+      bounds: expect.objectContaining({ height: 48 }),
+      checks: expect.arrayContaining(['row-height'])
+    }));
+    expect(criticalById.get('menu-archive-icon')).toEqual(expect.objectContaining({
+      bounds: expect.objectContaining({ width: 20, height: 20 }),
+      checks: expect.arrayContaining(['icon-size'])
+    }));
+
+    expect(result.verificationTargets.itemCounts).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        nodeId: 'menu-panel',
+        expectedVisibleItemCount: 2,
+        itemNodeIds: ['menu-archive-row', 'menu-delete-row']
+      })
+    ]));
+    expect(result.verificationTargets.rowHeights).toEqual(expect.arrayContaining([
+      expect.objectContaining({ nodeId: 'menu-archive-row', expectedHeight: 48 }),
+      expect.objectContaining({ nodeId: 'menu-delete-row', expectedHeight: 48 })
+    ]));
+    expect(result.verificationTargets.icons).toEqual(expect.arrayContaining([
+      expect.objectContaining({ nodeId: 'menu-archive-icon', expectedSize: '20x20' })
+    ]));
+    expect(result.verificationTargets.surfaces).toEqual(expect.arrayContaining([
+      expect.objectContaining({ nodeId: 'menu-panel', radius: '16px' })
+    ]));
+    expect(result.verificationTargets.overlayPosition).toEqual(expect.objectContaining({
+      triggerNodeId: 'menu-trigger',
+      overlayNodeId: 'menu-panel',
+      expectedOffset: { x: 0, y: 4 }
+    }));
+
+    const checklistNames = result.fidelityChecklist.requiredChecks.map(item => item.check);
+    expect(checklistNames).toEqual(expect.arrayContaining([
+      'panel-bounds',
+      'item-count',
+      'row-height',
+      'typography',
+      'icon-size',
+      'padding-gap',
+      'radius-shadow',
+      'overlay-position',
+      'visible-texts'
+    ]));
+    expect(result.fidelityChecklist.requiredChecks.find(item => item.check === 'visible-texts').expected).toEqual(expect.arrayContaining(['В архив', 'Удалить']));
+    expect(result.productionGuidance.risks.map(item => item.code)).toEqual(expect.arrayContaining([
+      'get-css-context-secondary',
+      'no-important',
+      'no-deep-ui-kit-selectors',
+      'critical-dimensions-dom-check',
+      'ui-kit-override-risk'
+    ]));
+  });
+
+  it('keeps opened menu dimensions and warns when agent CSS omits visual sizes', async () => {
+    const { callPlugin } = createPluginHarness();
+    const result = await callPlugin('get_css_context', {
+      nodeId: 'opened-menu-frame',
+      mode: 'balanced',
+      depth: 4,
+      selectorStrategy: 'name',
+      guidanceProfile: 'agent',
+      declarationMetadata: 'compact',
+      includeStyleResolution: false
+    });
+
+    expect(result.guidanceProfile).toBe('agent');
+    expect(result.cssText).toBe(result.implementationCssText);
+    expect(result.implementationCssText).not.toContain('width: 420px;');
+    expect(result.omittedDeclarationSummary.byReason['root-size']).toBeGreaterThan(0);
+    expect(result.omittedDeclarationSummary.byReason['fixed-container']).toBeGreaterThan(0);
+    expect(result.criticalDimensions).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        nodeId: 'menu-panel',
+        reason: 'critical visual dimension',
+        bounds: expect.objectContaining({ width: 280, height: 116 })
+      }),
+      expect.objectContaining({
+        nodeId: 'menu-delete-icon',
+        bounds: expect.objectContaining({ width: 20, height: 20 })
+      })
+    ]));
+    expect(result.agentWarnings).toEqual(expect.arrayContaining([
+      expect.stringContaining('implementationCssText omits root/non-leaf width/height'),
+      expect.stringContaining('critical-dimensions')
+    ]));
+    expect(result.productionGuidance.risks.map(item => item.code)).toEqual(expect.arrayContaining([
+      'implementation-css-incomplete-for-fidelity',
+      'critical-dimensions-dom-check',
+      'no-important'
+    ]));
+    expect(result.verificationTargets.itemCounts).toEqual(expect.arrayContaining([
+      expect.objectContaining({ nodeId: 'menu-panel', expectedVisibleItemCount: 2 })
     ]));
   });
 

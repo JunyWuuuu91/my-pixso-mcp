@@ -17,9 +17,9 @@ export async function runHttpServer(config, bridge, logger) {
             if (sessionId) {
                 const existingTransport = transports.get(sessionId);
                 if (!existingTransport) {
-                    res.status(400).json({
+                    res.status(404).json({
                         jsonrpc: '2.0',
-                        error: { code: -32000, message: 'Bad Request: missing or invalid MCP session id' },
+                        error: { code: -32001, message: 'MCP session not found. Initialize a new session.' },
                         id: null
                     });
                     return;

@@ -38,6 +38,16 @@ Check these basics:
 - your agent is actually calling `health` or another MCP tool;
 - the local bridge process is still running.
 
+The green `Connected` state only confirms that the plugin UI opened a WebSocket. The bridge also probes the Pixso main context when `health` runs. If a command stops responding, the bridge now quarantines that connection instead of sending more commands into the stuck runtime.
+
+When the plugin reports that the last command timed out:
+
+1. Close the Pixso Advanced MCP plugin window.
+2. Open one fresh plugin window and reconnect it.
+3. Run `health` before repeating the scan.
+
+Do not open multiple plugin windows or retry scans while another command is still running. Overlapping commands are rejected intentionally to keep the Pixso runtime responsive.
+
 ## I updated the plugin code, but Pixso still behaves like the old version
 
 Pixso keeps plugin code in memory.
