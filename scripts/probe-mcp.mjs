@@ -55,11 +55,16 @@ function flatten(result) {
   return parts.join('\n') || JSON.stringify(result);
 }
 
-const [command = 'url', ...rest] = process.argv.slice(2);
-if (command === '--url' || command === '-u') {
-  endpoint = rest[0] ?? (() => { console.error('--url needs a value'); process.exit(2); })();
-  rest.shift();
+const argv = process.argv.slice(2);
+if (argv[0] === '--url' || argv[0] === '-u') {
+  if (!argv[1]) {
+    console.error('--url needs a value');
+    process.exit(2);
+  }
+  endpoint = argv[1];
+  argv.splice(0, 2);
 }
+const [command = 'url', ...rest] = argv;
 
 const args = rest.length > 1 ? JSON.parse(rest.slice(1).join(' ')) : {};
 const info = await connect();
