@@ -39,6 +39,11 @@ function makeRegistry(pluginTimeoutMs = 30_000) {
   return new SessionRegistry(config);
 }
 
+/** What a current bundle publishes in its hello payload; old bundles only report name + uiConnectedAt. */
+function env(overrides: Record<string, unknown> = {}) {
+  return { name: 'My Pixso MCP', version: '0.1.0', editorType: 'pixso', apiVersion: '1.0', ...overrides };
+}
+
 describe('SessionRegistry', () => {
   it('throws a helpful error when no plugin is connected', async () => {
     const registry = makeRegistry();
@@ -104,6 +109,69 @@ describe('SessionRegistry', () => {
     const sent = idleSocket.lastMessage();
     idleSession.handleResponse({ id: sent.id, ok: true, result: { from: 'idle' } });
     await expect(second).resolves.toEqual({ from: 'idle' });
+  });
+
+  it('prefers a window that reported its environment over an old bundle', async () => {
+    const registry = makeRegistry();
+    const staleSocket = new FakeSocket();
+    registry.register(staleSocket as any, { name: 'My Pixso MCP', uiConnectedAt: new Date().toISOString() });
+    const freshSocket = new FakeSocket();
+    registry.register(freshSocket as any, env({ fileKey: 'keyFresh', documentName: '登录页' }));
+
+    void registry.call('health', {}).catch(() => {});
+    expect(staleSocket.sent).toHaveLength(0);
+    expect(freshSocket.sent).toHaveLength(1);
+  });
+
+  it('labels each session with its availability and marks the next pick', () => {
+    const registry = makeRegistry();
+    const staleSocket = new FakeSocket();
+    registry.register(staleSocket as any, { name: 'My Pixso MCP' });
+    const freshSocket = new FakeSocket();
+    registry.register(freshSocket as any, env({ fileKey: 'keyFresh', documentName: '登录页' }));
+
+    const [first, second] = registry.getStatus().sessions;
+    expect(first.fileKey).toBe('keyFresh');
+    expect(first.availability).toBe('ready');
+    expect(first.nextPick).toBe(true);
+    expect(second.availability).toBe('unknown-build');
+    expect(second.nextPick).toBeUndefined();
+  });
+
+  it('pins a call to the window matching file by key or name', async () => {
+    const registry = makeRegistry();
+    const socketA = new FakeSocket();
+    registry.register(socketA as any, env({ fileKey: 'keyA', documentName: '首页设计' }));
+    const socketB = new FakeSocket();
+    registry.register(socketB as any, env({ fileKey: 'keyB', documentName: '个人中心' }));
+
+    void registry.call('health', {}, undefined, { file: '个人中心' }).catch(() => {});
+    expect(socketA.sent).toHaveLength(0);
+    expect(socketB.sent).toHaveLength(1);
+
+    void registry.call('get_document', {}, undefined, { file: '首页' }).catch(() => {});
+    expect(socketA.sent).toHaveLength(1);
+  });
+
+  it('does not fall back to another file when the pinned window is busy', async () => {
+    const registry = makeRegistry();
+    const socketA = new FakeSocket();
+    registry.register(socketA as any, env({ fileKey: 'keyA', documentName: 'A' }));
+    const socketB = new FakeSocket();
+    registry.register(socketB as any, env({ fileKey: 'keyB', documentName: 'B' }));
+
+    void registry.call('health', {}, undefined, { file: 'keyA' }).catch(() => {});
+    await expect(registry.call('get_document', {}, undefined, { file: 'keyA' })).rejects.toThrow(/matching "keyA"/);
+    expect(socketB.sent).toHaveLength(0);
+  });
+
+  it('lists the connected windows when no file matches', async () => {
+    const registry = makeRegistry();
+    registry.register(new FakeSocket() as any, env({ fileKey: 'keyA', documentName: '首页设计' }));
+
+    await expect(registry.call('get_document', {}, undefined, { file: '不存在的文件' })).rejects.toThrow(
+      /Connected windows: "首页设计" \(keyA, pixso\)/
+    );
   });
 
   it('removes sessions when the socket closes', async () => {

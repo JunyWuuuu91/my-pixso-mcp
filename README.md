@@ -70,7 +70,7 @@ CLI 选项：`--transport http|stdio`、`--host`、`--mcp-port`、`--ws-port`、
 ## 设计要点
 
 - **命令级超时不断链**：插件会话超时只被标记为 stuck 并在后续调用中跳过，插件窗口不用重开。上游那种"卡住就得重开插件"的行为是本项目主要修掉的痛点。
-- **多会话注册表**：同时开多个 Pixso 窗口/文件时，请求会派发给第一个空闲会话。
+- **多会话路由**：同时开多个 Pixso 窗口时，命令优先派发给上报过运行环境（`version` / `editorType` / `fileKey`）且最近活跃的会话；旧 bundle 或未打开文件的会话只作兜底，并在 `/health` 与 `health` 工具里标成 `unknown-build`，`nextPick` 指出下一条命令会落到哪个窗口。`get_document` / `probe_api` 的 `file` 参数（fileKey 或文件名，可部分匹配）可把调用钉在某个文件上，匹配不到时报错并列出全部窗口，不会退到别的文件。
 - **面向上下文预算的提取内核（阶段 2）**：`get_context` / `get_tokens` / `search_nodes` 单个入口、少量参数，输出按 token 预算裁剪，并把 hex 映射回变量与样式的语义名。
 
 ## 现状

@@ -1,6 +1,10 @@
 import { randomUUID } from 'node:crypto';
 import type { WebSocket } from 'ws';
-import type { BridgeStatus, PluginCommandResponse, ServerConfig, SessionStatus } from '../types.js';
+import type { BridgeStatus, PluginCommandResponse, ServerConfig, SessionAvailability, SessionStatus } from '../types.js';
+
+export interface PluginCallOptions {
+  file?: string;
+}
 
 interface PendingCall {
   id: string;
@@ -12,7 +16,7 @@ interface PendingCall {
 }
 
 export const NO_PLUGIN_MESSAGE =
-  'No Pixso plugin is connected. Open Pixso, run the My Pixso MCP plugin and keep its window open until it shows "Connected".';
+  'No Pixso plugin is connected. Open Pixso, run the plugin "Pixso MCP 本地桥" and keep its window open until the badge shows 「已连接」.';
 
 export class PluginSession {
   readonly id = randomUUID();
@@ -31,6 +35,46 @@ export class PluginSession {
   updatePluginInfo(pluginInfo?: Record<string, unknown>): void {
     this.lastSeenAt = new Date();
     if (pluginInfo) this.pluginInfo = { ...(this.pluginInfo ?? {}), ...pluginInfo };
+  }
+
+  stringInfo(key: string): string | undefined {
+    const value = this.pluginInfo?.[key];
+    return typeof value === 'string' && value.trim().length > 0 ? value.trim() : undefined;
+  }
+
+  /** Newer bundles publish their runtime environment; older or half-handshaked windows do not. */
+  reportsEnvironment(): boolean {
+    return this.stringInfo('version') !== undefined && this.stringInfo('editorType') !== undefined;
+  }
+
+  matchesFileExact(target: string): boolean {
+    const needle = target.toLowerCase();
+    return this.stringInfo('fileKey')?.toLowerCase() === needle
+      || this.stringInfo('documentName')?.toLowerCase() === needle;
+  }
+
+  matchesFilePartial(target: string): boolean {
+    return this.stringInfo('documentName')?.toLowerCase().includes(target.toLowerCase()) ?? false;
+  }
+
+  describeWindow(): string {
+    const file = this.stringInfo('documentName') ?? 'unnamed file';
+    const fileKey = this.stringInfo('fileKey') ?? 'no fileKey';
+    const mode = this.stringInfo('editorType') ?? 'unknown mode';
+    return `"${file}" (${fileKey}, ${mode})`;
+  }
+
+  availability(): { value: SessionAvailability; reason: string } {
+    if (this.stuck) {
+      return { value: 'stuck', reason: `Last ${this.stuck.command} timed out; the window never answered. Reload the plugin in Pixso.` };
+    }
+    if (this.pending) {
+      return { value: 'busy', reason: `Running ${this.pending.command}.` };
+    }
+    if (!this.reportsEnvironment()) {
+      return { value: 'unknown-build', reason: 'Session never reported its plugin environment (old bundle or window without a file). Used only as a last-resort target.' };
+    }
+    return { value: 'ready', reason: 'Environment reported; this window answers commands.' };
   }
 
   isBusy(): boolean {
@@ -90,13 +134,20 @@ export class PluginSession {
     }
   }
 
-  getStatus(): SessionStatus {
+  getStatus(isNextPick = false): SessionStatus {
     const now = Date.now();
+    const availability = this.availability();
     return {
       sessionId: this.id,
       connectedAt: this.connectedAt.toISOString(),
       lastSeenAt: this.lastSeenAt.toISOString(),
       plugin: this.pluginInfo,
+      fileKey: this.stringInfo('fileKey'),
+      documentName: this.stringInfo('documentName'),
+      editorType: this.stringInfo('editorType'),
+      availability: availability.value,
+      reason: availability.reason,
+      nextPick: isNextPick || undefined,
       pending: this.pending ? { command: this.pending.command, elapsedMs: now - this.pending.startedAt } : undefined,
       stuck: this.stuck ? { command: this.stuck.command, since: this.stuck.since.toISOString() } : undefined
     };
@@ -131,26 +182,74 @@ export class SessionRegistry {
   }
 
   getStatus(): BridgeStatus {
+    const { session } = this.select();
     return {
       connected: this.sessions.size > 0,
-      sessions: Array.from(this.sessions.values()).map(session => session.getStatus())
+      sessions: this.rank(Array.from(this.sessions.values())).map(entry => entry.getStatus(entry.id === session?.id))
     };
   }
 
-  async call<TResult = unknown>(command: string, input: unknown, timeoutMs?: number): Promise<TResult> {
+  async call<TResult = unknown>(
+    command: string,
+    input: unknown,
+    timeoutMs?: number,
+    options: PluginCallOptions = {}
+  ): Promise<TResult> {
     if (this.sessions.size === 0) {
       throw new Error(NO_PLUGIN_MESSAGE);
     }
 
-    const idle = Array.from(this.sessions.values()).find(session => !session.isBusy());
-    if (!idle) {
-      const busyDescription = Array.from(this.sessions.values())
-        .map(session => (session.getStatus().pending ? session.getStatus().pending?.command : 'recovering from timeout'))
-        .join(', ');
-      throw new Error(`All connected Pixso plugin sessions are busy (${busyDescription}). Wait and retry.`);
+    const target = options.file?.trim();
+    const { session, candidates, unmatched } = this.select(options);
+
+    if (unmatched) {
+      const known = Array.from(this.sessions.values()).map(entry => entry.describeWindow()).join(', ');
+      throw new Error(
+        `No connected Pixso plugin window matches file "${target}". Connected windows: ${known}. Call the health tool to see each window's fileKey and documentName.`
+      );
     }
 
-    return idle.call<TResult>(command, input, timeoutMs);
+    if (!session) {
+      const scope = target ? ` matching "${target}"` : '';
+      const busyDescription = candidates.map(entry => entry.availability().reason).join(' | ');
+      throw new Error(
+        `All connected Pixso plugin windows${scope} are busy or stuck (${busyDescription}). Wait and retry, or reload the plugin window in Pixso.`
+      );
+    }
+
+    return session.call<TResult>(command, input, timeoutMs);
+  }
+
+  private select(options: PluginCallOptions = {}): {
+    session?: PluginSession;
+    candidates: PluginSession[];
+    unmatched: boolean;
+  } {
+    const all = this.rank(Array.from(this.sessions.values()));
+    const target = options.file?.trim();
+    if (!target) {
+      return { session: all.find(entry => !entry.isBusy()), candidates: all, unmatched: false };
+    }
+
+    const exact = all.filter(entry => entry.matchesFileExact(target));
+    const candidates = exact.length ? exact : all.filter(entry => entry.matchesFilePartial(target));
+    return {
+      session: candidates.find(entry => !entry.isBusy()),
+      candidates,
+      unmatched: candidates.length === 0
+    };
+  }
+
+  /**
+   * Windows that announced their plugin environment first: an old bundle or a window
+   * without an open file cannot be verified, so it only serves as a last-resort target.
+   */
+  private rank(sessions: PluginSession[]): PluginSession[] {
+    return [...sessions].sort(
+      (a, b) =>
+        Number(b.reportsEnvironment()) - Number(a.reportsEnvironment()) ||
+        b.lastSeenAt.getTime() - a.lastSeenAt.getTime()
+    );
   }
 
   closeAll(): void {

@@ -9,16 +9,21 @@ export function registerHealthTool(server: McpServer, sessions: SessionRegistry,
     {
       title: 'My Pixso MCP health',
       description:
-        'Check the local MCP server and Pixso plugin connection status. Returns server info and one status entry per connected plugin window. Read-only.',
+        'Check the local MCP server and Pixso plugin connection status. Returns server info plus one entry per connected plugin window, each with its fileKey, documentName, editor type and an availability verdict; the entry marked nextPick is the window the next command will reach. Read-only.',
       inputSchema: {},
       annotations: { readOnlyHint: true, openWorldHint: false }
     },
     async (): Promise<McpToolResult> => {
       const status = sessions.getStatus();
+      const target = status.sessions.find(entry => entry.nextPick);
 
       let pluginProbe: unknown = null;
-      const idleSession = status.sessions.find(entry => !entry.pending && !entry.stuck);
-      if (idleSession) {
+      if (status.connected && !target) {
+        pluginProbe = {
+          ok: false,
+          error: 'No Pixso plugin window is idle. Every connected window is busy or stuck; see plugin.sessions for the reason.'
+        };
+      } else if (target) {
         try {
           pluginProbe = await sessions.call('health', {}, 5_000);
         } catch (error) {

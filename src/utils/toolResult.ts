@@ -1,3 +1,5 @@
+import type { PluginCallOptions } from '../bridge/pluginSession.js';
+
 export interface McpToolResult {
   [key: string]: unknown;
   content: Array<{ type: 'text'; text: string }>;
@@ -19,13 +21,14 @@ export function errorToolResult(error: unknown): McpToolResult {
 }
 
 export async function callPlugin<TResult>(
-  call: (command: string, input: unknown, timeoutMs?: number) => Promise<TResult>,
+  call: (command: string, input: unknown, timeoutMs?: number, options?: PluginCallOptions) => Promise<TResult>,
   command: string,
   input: unknown,
-  timeoutMs?: number
+  timeoutMs?: number,
+  options?: PluginCallOptions
 ): Promise<McpToolResult> {
   try {
-    const result = await call(command, input, timeoutMs);
+    const result = await call(command, input, timeoutMs, options);
     return jsonToolResult(result);
   } catch (error) {
     return errorToolResult(error);

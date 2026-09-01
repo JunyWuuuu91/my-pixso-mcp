@@ -10,7 +10,13 @@ const getDocumentSchema = {
     .min(1)
     .max(500)
     .optional()
-    .describe('Maximum number of top-level frames to list per page. Defaults to 100.')
+    .describe('Maximum number of top-level frames to list per page. Defaults to 100.'),
+  file: z
+    .string()
+    .optional()
+    .describe(
+      'Pixso file to read, by fileKey or file name. Only needed when several plugin windows are connected; otherwise the most recently active window is used.'
+    )
 };
 
 export function registerGetDocumentTool(server: McpServer, sessions: SessionRegistry): void {
@@ -23,6 +29,7 @@ export function registerGetDocumentTool(server: McpServer, sessions: SessionRegi
       inputSchema: getDocumentSchema,
       annotations: { readOnlyHint: true, openWorldHint: false }
     },
-    async input => callPlugin(sessions.call.bind(sessions), 'get_document', input)
+    async ({ file, ...input }) =>
+      callPlugin(sessions.call.bind(sessions), 'get_document', input, undefined, { file })
   );
 }
