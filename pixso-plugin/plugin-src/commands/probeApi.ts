@@ -135,13 +135,27 @@ interface NodeProbe {
   methods?: Record<string, string>;
   values?: Record<string, unknown>;
   childTypes?: Record<string, number>;
+  children?: Array<Record<string, unknown>>;
   error?: string;
 }
+
+const CHILD_SUMMARY_LIMIT = 20;
 
 function describe(value: unknown): string {
   if (value === null) return 'null';
   if (Array.isArray(value)) return `array(${value.length})`;
   return typeof value;
+}
+
+function readChildValue(node: unknown, prop: string): unknown {
+  try {
+    const value = (node as Record<string, unknown>)[prop];
+    if (value === undefined) return 'missing';
+    if (Array.isArray(value)) return `array(${value.length})`;
+    return value as string | number | boolean;
+  } catch (error) {
+    return `threw: ${error instanceof Error ? error.message : String(error)}`;
+  }
 }
 
 function summarize(value: unknown): unknown {
@@ -266,11 +280,23 @@ function probeNode(target: { id: string; name: string; type: string }, deep: boo
       }
     }
     probe.values = values;
+    const childNodes = (record.children as SceneNodeLike[] | undefined) ?? [];
     const childTypes: Record<string, number> = {};
-    for (const child of (record.children as SceneNodeLike[] | undefined) ?? []) {
+    for (const child of childNodes) {
       childTypes[child.type] = (childTypes[child.type] ?? 0) + 1;
     }
     probe.childTypes = childTypes;
+    if (childNodes.length) {
+      probe.children = childNodes.slice(0, CHILD_SUMMARY_LIMIT).map(child => ({
+        id: child.id,
+        name: child.name,
+        type: child.type,
+        width: readChildValue(child, 'width'),
+        height: readChildValue(child, 'height'),
+        visible: readChildValue(child, 'visible'),
+        childCount: readChildValue(child, 'children')
+      }));
+    }
   }
   return probe;
 }

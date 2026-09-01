@@ -58,8 +58,59 @@ function buildDecorativeFixture() {
   };
   const pageA = { id: 'p1', name: '图标页', type: 'PAGE', width: 0, height: 0, children: [emojiText, iconStar, screen] };
   const pageB = { id: 'p2', name: '组件库', type: 'PAGE', width: 0, height: 0, children: [] };
+  const svgFrame = {
+    id: 'sf1',
+    name: 'svg',
+    type: 'FRAME',
+    width: 22,
+    height: 22,
+    children: [{ id: 'sf1a', name: '矢量 5901', type: 'VECTOR', width: 0, height: 0 }]
+  };
+  const textChip = {
+    id: 'ch1',
+    name: '标签',
+    type: 'FRAME',
+    width: 24,
+    height: 24,
+    children: [{ id: 'ch1a', name: '文字', type: 'TEXT', width: 20, height: 12, characters: '热门' }]
+  };
+  const strip = {
+    id: 'st1',
+    name: '横条',
+    type: 'FRAME',
+    width: 60,
+    height: 20,
+    children: [{ id: 'st1a', name: '底', type: 'RECTANGLE', width: 60, height: 20 }]
+  };
+  const busyFrame = {
+    id: 'bz1',
+    name: '小容器',
+    type: 'FRAME',
+    width: 40,
+    height: 40,
+    children: [1, 2, 3, 4].map(index => ({ id: `bz1${index}`, name: `子${index}`, type: 'RECTANGLE', width: 10, height: 10 }))
+  };
+  const emptyFrame = { id: 'em1', name: '空框', type: 'FRAME', width: 30, height: 30, children: [] };
+  const layoutWrapper = {
+    id: 'lw1',
+    name: 'div.flex flex-col items-center',
+    type: 'FRAME',
+    width: 22,
+    height: 37,
+    children: [{ id: 'lw1a', name: '底', type: 'RECTANGLE', width: 10, height: 10 }]
+  };
+  const labTest = { id: 'tx1', name: '肿瘤标志物', type: 'TEXT', width: 60, height: 14, characters: '肿瘤标志物' };
+  const labFlag = { id: 'tx2', name: '标志', type: 'TEXT', width: 12, height: 12, characters: '标志' };
+  const pageC = {
+    id: 'p3',
+    name: '容器页',
+    type: 'PAGE',
+    width: 0,
+    height: 0,
+    children: [svgFrame, textChip, strip, busyFrame, emptyFrame, layoutWrapper, labTest, labFlag]
+  };
   return {
-    root: { id: 'doc-1', name: '示例文件', children: [pageA, pageB] },
+    root: { id: 'doc-1', name: '示例文件', children: [pageA, pageB, pageC] },
     currentPage: pageA
   };
 }
@@ -116,6 +167,15 @@ async function runPlugin(
         showUiCalls.push({ html, options });
       },
       notify() {},
+      getNodeById(id: string) {
+        const stack: Array<Record<string, unknown>> = [fixture.root as unknown as Record<string, unknown>];
+        while (stack.length > 0) {
+          const node = stack.pop() as Record<string, unknown>;
+          if (node.id === id) return node;
+          for (const child of (node.children as Array<Record<string, unknown>> | undefined) ?? []) stack.push(child);
+        }
+        return undefined;
+      },
       ui: {
         onmessage: null as ((payload: unknown) => Promise<void>) | null,
         postMessage(message: UiMessage) {
@@ -317,6 +377,30 @@ describe('decorative node scan', () => {
     expect(proposal.recommended).toBe(3);
     expect(proposal.options.map((option: any) => option.typicalPx)).toEqual([32, 64, 96]);
   });
+
+  it('surfaces svg icon containers without their inner vectors', async () => {
+    const { dispatchCommand } = await runPlugin(buildDecorativeFixture());
+    const response = await dispatchCommand('scan-7', 'find_decorative_nodes', { page: '容器页' });
+    expect(response?.ok).toBe(true);
+    const candidates = response?.result.candidates;
+    expect(candidates.map((candidate: any) => candidate.id)).toEqual(['sf1', 'tx2']);
+    expect(candidates[0].reasons).toEqual(['name-hint']);
+    // Small layout containers must not be mistaken for icons: the wrapper is not a
+    // candidate and its rectangle child is too small a shape to matter either.
+    expect(candidates.some((candidate: any) => ['ch1', 'st1', 'bz1', 'em1', 'lw1', 'lw1a'].includes(candidate.id))).toBe(
+      false
+    );
+  });
+
+  it('no longer reads lab names as name hints', async () => {
+    const { dispatchCommand } = await runPlugin(buildDecorativeFixture());
+    const response = await dispatchCommand('scan-8', 'find_decorative_nodes', { page: '容器页' });
+    const byId = Object.fromEntries(
+      response?.result.candidates.map((candidate: any) => [candidate.id, candidate])
+    );
+    expect(byId.tx1).toBeUndefined();
+    expect(byId.tx2.reasons).toEqual(['name-hint']);
+  });
 });
 
 describe('decorative node export', () => {
@@ -517,5 +601,17 @@ describe('canvas selection', () => {
     const { dispatchCommand } = await runPlugin();
     const response = await dispatchCommand('sel-5', 'nope');
     expect(response?.error).toContain('get_selection');
+  });
+});
+
+describe('node probe', () => {
+  it('summarizes immediate children so nested vectors are inspectable', async () => {
+    const { dispatchCommand } = await runPlugin(buildDecorativeFixture());
+    const response = await dispatchCommand('probe-1', 'probe_api', { nodeIds: ['sf1'] });
+    expect(response?.ok).toBe(true);
+    const node = response?.result.nodes[0];
+    expect(node.childTypes).toEqual({ VECTOR: 1 });
+    expect(node.children).toHaveLength(1);
+    expect(node.children[0]).toMatchObject({ id: 'sf1a', type: 'VECTOR', width: 0, height: 0 });
   });
 });

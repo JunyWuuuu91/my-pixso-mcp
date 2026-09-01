@@ -20,7 +20,7 @@ export interface DecorativeCandidate {
 }
 
 const EMOJI_PATTERN = /[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{2B00}-\u{2BFF}\u{1F1E6}-\u{1F1FF}\u{FE0F}]/u;
-const NAME_HINT_PATTERN = /icon|emoji|logo|badge|图标|表情|标志/i;
+const NAME_HINT_PATTERN = /\b(icon|emoji|logo|badge|svg)\b|图标|表情|标志(?!物)/i;
 const SMALL_GRAPHIC_TYPES = new Set(['INSTANCE', 'COMPONENT', 'VECTOR', 'BOOLEAN_OPERATION', 'GROUP']);
 
 function classify(
