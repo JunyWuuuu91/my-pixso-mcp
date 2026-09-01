@@ -64,10 +64,30 @@ function buildDecorativeFixture() {
   };
 }
 
+function buildSelectionFixture(selectionNodes?: unknown[]) {
+  const page: any = { id: 'p1', name: '首页', type: 'PAGE', width: 0, height: 0, children: [] };
+  const screen: any = { id: 'f1', name: '登录页', type: 'FRAME', width: 375, height: 812, children: [], parent: page };
+  const emoji: any = { id: 't1', name: '表情', type: 'TEXT', width: 14.2, height: 21, characters: '🎂', parent: screen };
+  const icon: any = { id: 'v1', name: '矢量 5714', type: 'VECTOR', width: 23, height: 20, parent: screen };
+  const group: any = {
+    id: 'g1',
+    name: '图标组',
+    type: 'GROUP',
+    width: 40,
+    height: 40,
+    parent: screen,
+    children: [{ id: 'r1', name: '子图形', type: 'RECTANGLE', width: 10, height: 10 }]
+  };
+  page.children = [screen];
+  screen.children = [emoji, icon, group];
+  page.selection = selectionNodes ?? [emoji, icon, group];
+  return { root: { id: 'doc-1', name: '示例文件', children: [page] }, currentPage: page };
+}
+
 async function runPlugin(
   fixture = buildDocumentFixture(),
   storage = new Map<string, unknown>(),
-  options: { withExport?: boolean } = {}
+  options: { withExport?: boolean; withOn?: boolean } = {}
 ) {
   const result = await build({
     entryPoints: [path.join(root, 'pixso-plugin/plugin-src/index.ts')],
@@ -80,8 +100,17 @@ async function runPlugin(
 
   const posted: UiMessage[] = [];
   const showUiCalls: Array<{ html: string; options?: Record<string, unknown> }> = [];
+  const eventHandlers: Array<{ event: string; handler: () => void }> = [];
+  const pollCallbacks: Array<() => void> = [];
   const context = vm.createContext({
     __html__: '<html>ui</html>',
+    // The sandbox has no host timers; capturing the poll callback lets a test
+    // fire ticks deterministically instead of waiting on real time.
+    setInterval(fn: () => void) {
+      pollCallbacks.push(fn);
+      return pollCallbacks.length;
+    },
+    clearInterval() {},
     pixso: {
       showUI(html: string, options?: Record<string, unknown>) {
         showUiCalls.push({ html, options });
@@ -108,7 +137,14 @@ async function runPlugin(
         async keysAsync() {
           return [...storage.keys()];
         }
-      }
+      },
+      ...(options.withOn
+        ? {
+            on(event: string, handler: () => void) {
+              eventHandlers.push({ event, handler });
+            }
+          }
+        : {})
     }
   });
 
@@ -135,7 +171,7 @@ async function runPlugin(
     return posted.find(message => message.response?.id === id)?.response;
   };
 
-  return { context, posted, showUiCalls, dispatchCommand, storage, exportLog };
+  return { context, posted, showUiCalls, dispatchCommand, storage, exportLog, eventHandlers, pollCallbacks };
 }
 
 describe('pixso plugin skeleton', () => {
@@ -381,4 +417,105 @@ describe('decorative node export', () => {
     expect(response?.result.aborted).toContain('total payload cap');
     expect(response?.result.skipped.some((entry: any) => entry.id === 'f1')).toBe(true);
   }, 20_000);
+});
+
+describe('canvas selection', () => {
+  const flush = () => new Promise(resolve => setImmediate(resolve));
+  const pushes = (posted: UiMessage[]) => posted.filter(message => message.type === 'plugin-selection') as any[];
+
+  it('reports selected nodes with their ancestor path', async () => {
+    const { dispatchCommand } = await runPlugin(buildSelectionFixture());
+    const response = await dispatchCommand('sel-1', 'get_selection');
+    expect(response?.ok).toBe(true);
+    expect(response?.result.file).toMatchObject({ id: 'doc-1', name: '示例文件' });
+    expect(response?.result.page).toMatchObject({ id: 'p1', name: '首页' });
+    expect(response?.result.count).toBe(3);
+    expect(response?.result.selectionMode).toBe('poll');
+    expect(response?.result.nodes.map((node: any) => node.id)).toEqual(['t1', 'v1', 'g1']);
+    expect(response?.result.nodes[0]).toMatchObject({
+      name: '表情',
+      type: 'TEXT',
+      width: 14.2,
+      height: 21,
+      path: ['首页', '登录页']
+    });
+    expect(response?.result.nodes[0].childCount).toBeUndefined();
+    expect(response?.result.nodes[2].childCount).toBe(1);
+  });
+
+  it('caps the node list and marks truncation', async () => {
+    const { dispatchCommand } = await runPlugin(buildSelectionFixture());
+    const response = await dispatchCommand('sel-2', 'get_selection', { maxNodes: 2 });
+    expect(response?.ok).toBe(true);
+    expect(response?.result.nodes).toHaveLength(2);
+    expect(response?.result.count).toBe(3);
+    expect(response?.result.truncated).toBe(true);
+  });
+
+  it('answers with a note when nothing is selected', async () => {
+    const { dispatchCommand } = await runPlugin(buildSelectionFixture([]));
+    const response = await dispatchCommand('sel-3', 'get_selection');
+    expect(response?.ok).toBe(true);
+    expect(response?.result.count).toBe(0);
+    expect(response?.result.nodes).toEqual([]);
+    expect(response?.result.note).toContain('Nothing is selected');
+  });
+
+  it('fails with a capability diagnostic when selection is unreadable', async () => {
+    const { dispatchCommand } = await runPlugin();
+    const response = await dispatchCommand('sel-4', 'get_selection');
+    expect(response?.ok).toBe(false);
+    expect(response?.error).toContain('selection is not available');
+    expect(response?.error).toContain('editorType=unknown');
+  });
+
+  it('pushes on request and then only when the selection changes', async () => {
+    const fixture = buildSelectionFixture();
+    const { context, posted, pollCallbacks } = await runPlugin(fixture);
+    const handler = (context.pixso as any).ui.onmessage;
+
+    await handler({ type: 'plugin-selection-request' });
+    expect(pushes(posted)).toHaveLength(1);
+    expect(pushes(posted)[0].selection.nodes).toHaveLength(3);
+
+    expect(pollCallbacks.length).toBe(1);
+    pollCallbacks[0]();
+    await flush();
+    expect(pushes(posted)).toHaveLength(1);
+
+    fixture.currentPage.selection = [fixture.currentPage.selection[1]];
+    pollCallbacks[0]();
+    await flush();
+    const latest = pushes(posted).at(-1);
+    expect(latest.selection.nodes.map((node: any) => node.id)).toEqual(['v1']);
+  });
+
+  it('subscribes to the selection-change event when Pixso provides it', async () => {
+    const { context, posted, eventHandlers } = await runPlugin(buildSelectionFixture(), undefined, { withOn: true });
+    expect(eventHandlers.map(entry => entry.event)).toEqual(['currentselectionchange']);
+
+    const handler = (context.pixso as any).ui.onmessage;
+    await handler({ type: 'plugin-env-request' });
+    expect((posted.find(message => message.type === 'plugin-env') as any).env).toMatchObject({
+      selectionMode: 'event',
+      hasSelectionApi: true
+    });
+
+    eventHandlers[0].handler();
+    await flush();
+    expect(pushes(posted)[0].selection.selectionMode).toBe('event');
+  });
+
+  it('falls back to polling when Pixso exposes no event API', async () => {
+    const { context, posted } = await runPlugin(buildSelectionFixture());
+    const handler = (context.pixso as any).ui.onmessage;
+    await handler({ type: 'plugin-env-request' });
+    expect((posted.find(message => message.type === 'plugin-env') as any).env.selectionMode).toBe('poll');
+  });
+
+  it('lists get_selection in the known command list', async () => {
+    const { dispatchCommand } = await runPlugin();
+    const response = await dispatchCommand('sel-5', 'nope');
+    expect(response?.error).toContain('get_selection');
+  });
 });

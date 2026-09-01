@@ -1,4 +1,5 @@
 import { resolvePage } from './resolvePage.js';
+import { clamp, numericSize, readProp } from '../utils/nodeProps.js';
 
 export interface FindDecorativeNodesInput {
   page?: string;
@@ -21,24 +22,6 @@ export interface DecorativeCandidate {
 const EMOJI_PATTERN = /[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{2B00}-\u{2BFF}\u{1F1E6}-\u{1F1FF}\u{FE0F}]/u;
 const NAME_HINT_PATTERN = /icon|emoji|logo|badge|图标|表情|标志/i;
 const SMALL_GRAPHIC_TYPES = new Set(['INSTANCE', 'COMPONENT', 'VECTOR', 'BOOLEAN_OPERATION', 'GROUP']);
-
-function clamp(value: number, min: number, max: number): number {
-  if (!Number.isFinite(value)) return min;
-  return Math.min(Math.max(value, min), max);
-}
-
-function readProp(node: SceneNodeLike, prop: string): unknown {
-  try {
-    return (node as unknown as Record<string, unknown>)[prop];
-  } catch {
-    return undefined;
-  }
-}
-
-function numericSize(value: unknown): number | undefined {
-  const parsed = typeof value === 'number' ? value : Number(value);
-  return Number.isFinite(parsed) && parsed >= 0 ? parsed : undefined;
-}
 
 function classify(
   node: SceneNodeLike,

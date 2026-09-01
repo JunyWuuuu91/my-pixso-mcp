@@ -7,7 +7,7 @@ export async function health(): Promise<Record<string, unknown>> {
     plugin: {
       name: PLUGIN_NAME,
       version: PLUGIN_VERSION,
-      commands: ['health', 'get_document', 'probe_api', 'find_decorative_nodes', 'export_nodes_png']
+      commands: ['health', 'get_document', 'probe_api', 'find_decorative_nodes', 'export_nodes_png', 'get_selection']
     },
     document: {
       name: pixso.root?.name,

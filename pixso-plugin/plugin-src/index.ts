@@ -1,5 +1,7 @@
 import { dispatch } from './dispatch.js';
 import { PLUGIN_NAME, PLUGIN_VERSION } from './commands/health.js';
+import { getSelection, getSelectionMode, setSelectionMode } from './commands/getSelection.js';
+import { readProp } from './utils/nodeProps.js';
 
 pixso.showUI(__html__, {
   width: 440,
@@ -21,6 +23,7 @@ interface UiPayload {
   type?: unknown;
   key?: unknown;
   value?: unknown;
+  on?: unknown;
   message?: BridgeMessage;
 }
 
@@ -40,7 +43,9 @@ function readEnv() {
     pageCount: pages.length,
     currentPageName: pixso.currentPage?.name,
     topFrameCount: topLevel.filter(node => node.type === 'FRAME').length,
-    componentCount: topLevel.filter(node => node.type === 'COMPONENT').length
+    componentCount: topLevel.filter(node => node.type === 'COMPONENT').length,
+    selectionMode: getSelectionMode(),
+    hasSelectionApi: Array.isArray(readProp(pixso.currentPage, 'selection'))
   };
 }
 
@@ -60,11 +65,88 @@ async function writeStorage(key: string, value: unknown): Promise<void> {
   }
 }
 
+const SELECTION_POLL_MS = 700;
+const SELECTION_FAILURE_LIMIT = 3;
+
+let selectionSignature = '';
+let lastSelectionError = '';
+let selectionFailures = 0;
+let selectionWatched = true;
+let selectionTimer: ReturnType<typeof setInterval> | null = null;
+
+function stopSelectionPolling() {
+  if (selectionTimer && typeof clearInterval === 'function') clearInterval(selectionTimer);
+  selectionTimer = null;
+}
+
+function startSelectionPolling() {
+  if (typeof setInterval !== 'function' || typeof clearInterval !== 'function') {
+    setSelectionMode('manual');
+    return;
+  }
+  setSelectionMode('poll');
+  if (selectionTimer) return;
+  selectionTimer = setInterval(() => void pushSelection(), SELECTION_POLL_MS);
+}
+
+async function pushSelection(force = false) {
+  if (!selectionWatched && !force) return;
+  try {
+    const selection = await getSelection();
+    selectionFailures = 0;
+    lastSelectionError = '';
+    const payload = JSON.stringify(selection);
+    if (!force && payload === selectionSignature) return;
+    selectionSignature = payload;
+    pixso.ui.postMessage({ type: 'plugin-selection', selection });
+  } catch (error) {
+    selectionFailures += 1;
+    const message = error instanceof Error ? error.message : String(error);
+    if (message !== lastSelectionError) {
+      lastSelectionError = message;
+      pixso.ui.postMessage({ type: 'plugin-selection', error: message, selectionMode: getSelectionMode() });
+    }
+    if (selectionFailures >= SELECTION_FAILURE_LIMIT) {
+      stopSelectionPolling();
+      setSelectionMode('manual');
+    }
+  }
+}
+
+function trackSelection() {
+  const on = readProp(pixso, 'on');
+  if (typeof on === 'function') {
+    try {
+      (on as (event: string, handler: () => void) => unknown).call(pixso, 'currentselectionchange', () => void pushSelection());
+      setSelectionMode('event');
+      return;
+    } catch {
+      // 事件名或签名与预期不符时退回轮询，不让面板失去选区。
+    }
+  }
+  startSelectionPolling();
+}
+
 pixso.ui.onmessage = async (payload: unknown) => {
   const data = (payload ?? {}) as UiPayload;
 
   if (data.type === 'plugin-env-request') {
     pixso.ui.postMessage({ type: 'plugin-env', env: readEnv() });
+    return;
+  }
+
+  if (data.type === 'plugin-selection-request') {
+    await pushSelection(true);
+    return;
+  }
+
+  if (data.type === 'plugin-selection-watch') {
+    selectionWatched = data.on !== false;
+    if (selectionWatched) {
+      if (getSelectionMode() === 'poll') startSelectionPolling();
+    } else {
+      stopSelectionPolling();
+    }
     return;
   }
 
@@ -95,3 +177,5 @@ pixso.ui.onmessage = async (payload: unknown) => {
     });
   }
 };
+
+trackSelection();

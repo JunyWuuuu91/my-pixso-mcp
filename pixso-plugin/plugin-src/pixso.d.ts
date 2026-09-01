@@ -62,6 +62,7 @@ declare global {
     origin?: string;
     fileKey?: string;
     pluginId?: string;
+    on?: (event: string, handler: (...args: unknown[]) => void) => unknown;
     currentUser?: unknown;
     [key: string]: unknown;
   }

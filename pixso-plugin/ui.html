@@ -125,6 +125,19 @@
       }
       .badge.neutral { background: #f1f3f6; color: var(--muted); }
 
+      .head-tools { display: flex; align-items: center; gap: 8px; min-width: 0; }
+      .sel { display: grid; gap: 8px; }
+      .sel-empty { font-size: 12px; color: var(--faint); }
+      .sel-error { font-size: 12px; color: var(--err); word-break: break-word; }
+      .sel-row { display: grid; gap: 3px; border: 1px solid var(--line); border-radius: 9px; padding: 7px 9px; min-width: 0; }
+      .sel-top { display: flex; align-items: center; gap: 6px; min-width: 0; }
+      .sel-name { flex: 1; min-width: 0; font-size: 12px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .sel-size { flex: none; font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
+      .sel-bottom { display: flex; align-items: center; gap: 8px; min-width: 0; }
+      .sel-bottom code { flex: none; }
+      .sel-path { flex: 1; min-width: 0; font-size: 11px; color: var(--faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .sel-more { font-size: 11.5px; color: var(--faint); }
+
       .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 10px; }
       .stat { border: 1px solid var(--line); border-radius: 9px; padding: 7px 8px; text-align: center; }
       .stat-val { font-size: 15px; font-weight: 650; font-variant-numeric: tabular-nums; }
@@ -205,6 +218,21 @@
         </section>
 
         <section class="card">
+          <div class="card-head">
+            <div class="card-title">当前选区</div>
+            <div class="head-tools">
+              <span id="selectionMode" class="badge neutral">读取中…</span>
+              <button id="toggleWatch" class="linkish" hidden>暂停跟随</button>
+            </div>
+          </div>
+          <div id="selectionList" class="sel"><div class="sel-empty">在画布里点选一个元素，这里会显示它的 node id。</div></div>
+          <div class="btn-row" id="selectionActions" hidden>
+            <button id="copySelection" class="btn ghost">复制节点清单</button>
+            <button id="refreshSelection" class="btn ghost">重新读取</button>
+          </div>
+        </section>
+
+        <section class="card">
           <div class="card-head"><div class="card-title">本次会话</div></div>
           <div class="stats">
             <div class="stat"><div class="stat-val" id="statTotal">0</div><div class="stat-label">命令总数</div></div>
@@ -233,6 +261,7 @@
             <li>连接成功后端口会被记住，下次打开面板自动填好；改动端口后重新连接即可覆盖记忆值。</li>
             <li>提示令牌被拒绝时，填写与服务端 <code>--token</code> 完全相同的值后重新连接。</li>
             <li>连接断开后本窗口会每 1.5 秒自动重试，不需要手动点连接。</li>
+            <li>「当前选区」只影响本面板：暂停跟随不会挡住 AI 调用，<code>get_selection</code> 永远读到画布实时选区。</li>
             <li>改过插件代码后，需要关掉插件窗口再重新运行一次，Pixso 才会加载新的 <code>main.js</code>。</li>
           </ol>
         </details>
@@ -259,6 +288,12 @@
       const connectBtn = document.getElementById('connect');
       const disconnectBtn = document.getElementById('disconnect');
       const settingsHintEl = document.getElementById('settingsHint');
+      const selectionModeEl = document.getElementById('selectionMode');
+      const selectionListEl = document.getElementById('selectionList');
+      const selectionActionsEl = document.getElementById('selectionActions');
+      const toggleWatchEl = document.getElementById('toggleWatch');
+      const copySelectionEl = document.getElementById('copySelection');
+      const refreshSelectionEl = document.getElementById('refreshSelection');
 
       const MODE_LABELS = {
         pixso: '编辑模式',
@@ -280,6 +315,9 @@
       let bootTimer = null;
       const STORAGE_PORT_KEY = 'bridgePort';
       const stats = { total: 0, ok: 0, fail: 0, elapsed: 0 };
+      const SELECTION_ROWS = 6;
+      let selection = null;
+      let selectionWatching = true;
 
       function setState(next) {
         state = next;
@@ -364,11 +402,145 @@
           })
           .join('');
         if (env.version) versionEl.textContent = 'v' + env.version;
+        renderSelectionMode(currentMode());
         sendHello();
       }
 
       function escapeHtml(value) {
         return value.replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+      }
+
+      const SELECTION_MODE_LABELS = { event: '实时事件', poll: '轮询跟随', manual: '手动读取' };
+
+      function renderSelectionMode(mode) {
+        selectionModeEl.textContent = SELECTION_MODE_LABELS[mode] || '未知';
+        toggleWatchEl.hidden = mode !== 'event' && mode !== 'poll';
+        toggleWatchEl.textContent = selectionWatching ? '暂停跟随' : '继续跟随';
+      }
+
+      function currentMode() {
+        return (selection && selection.selectionMode) || env.selectionMode;
+      }
+
+      function nodeLine(node) {
+        const size = `${Math.round(node.width || 0)}×${Math.round(node.height || 0)}`;
+        return `${node.id}「${node.name || '（未命名）'}」${node.type || '?'} ${size}`;
+      }
+
+      function selectionContextText() {
+        const nodes = (selection && Array.isArray(selection.nodes) && selection.nodes) || [];
+        const fileKey = env.fileKey ? `（fileKey ${env.fileKey}）` : '';
+        const fileName = (selection && selection.file && selection.file.name) || env.documentName || '—';
+        const pageName = (selection && selection.page && selection.page.name) || env.currentPageName || '—';
+        const lines = [`文件：${fileName}${fileKey}`, `页面：${pageName}`];
+        for (const node of nodes) {
+          const path = Array.isArray(node.path) && node.path.length ? ` · 路径 ${node.path.join(' / ')}` : '';
+          lines.push(`- ${nodeLine(node)}${path}`);
+        }
+        return lines.join('\n');
+      }
+
+      function renderSelection(payload) {
+        if (payload.error) {
+          selection = null;
+          selectionActionsEl.hidden = true;
+          selectionListEl.innerHTML = `<div class="sel-error">${escapeHtml(String(payload.error))}</div>`;
+          if (payload.selectionMode) renderSelectionMode(payload.selectionMode);
+          return;
+        }
+        selection = payload.selection || payload;
+        renderSelectionMode(currentMode());
+
+        const nodes = Array.isArray(selection.nodes) ? selection.nodes : [];
+        if (!nodes.length) {
+          selectionActionsEl.hidden = true;
+          selectionListEl.innerHTML = '<div class="sel-empty">未选中任何元素——在画布里点一下要看的那个。</div>';
+          return;
+        }
+        selectionActionsEl.hidden = false;
+
+        const shown = nodes.slice(0, SELECTION_ROWS);
+        selectionListEl.innerHTML = shown
+          .map(node => {
+            const path = Array.isArray(node.path) ? node.path.join(' / ') : '';
+            const children = node.childCount ? `<span class="sel-size">${node.childCount} 个子节点</span>` : '';
+            return `<div class="sel-row">
+              <div class="sel-top">
+                <span class="sel-name" title="${escapeHtml(node.name || '')}">${escapeHtml(node.name || '（未命名）')}</span>
+                <span class="badge neutral">${escapeHtml(node.type || '?')}</span>${children}
+                <span class="sel-size">${Math.round(node.width || 0)}×${Math.round(node.height || 0)}</span>
+              </div>
+              <div class="sel-bottom">
+                <code class="sel-id">${escapeHtml(node.id || '')}</code>
+                <span class="sel-path" title="${escapeHtml(path)}">${escapeHtml(path || '（页面顶层）')}</span>
+                <button class="linkish" data-copy="${escapeHtml(node.id || '')}">复制</button>
+              </div>
+            </div>`;
+          })
+          .join('');
+        if (nodes.length > shown.length) {
+          selectionListEl.innerHTML += `<div class="sel-more">另有 ${nodes.length - shown.length} 个未显示。</div>`;
+        } else if (selection.truncated) {
+          selectionListEl.innerHTML += '<div class="sel-more">选区节点数超过插件侧上限，清单已截断。</div>';
+        }
+      }
+
+      function selectText(el) {
+        try {
+          const range = document.createRange();
+          range.selectNodeContents(el);
+          const active = window.getSelection();
+          active.removeAllRanges();
+          active.addRange(range);
+        } catch {
+          /* 选不中就算了，文本本来就可见 */
+        }
+      }
+
+      async function writeClipboard(text) {
+        try {
+          if (navigator.clipboard && navigator.clipboard.writeText) {
+            await navigator.clipboard.writeText(text);
+            return true;
+          }
+        } catch {
+          /* 插件 iframe 可能没有 clipboard-write 权限 */
+        }
+        try {
+          const area = document.createElement('textarea');
+          area.value = text;
+          area.setAttribute('readonly', '');
+          area.style.position = 'fixed';
+          area.style.top = '-1000px';
+          document.body.appendChild(area);
+          area.select();
+          const ok = document.execCommand ? document.execCommand('copy') : false;
+          document.body.removeChild(area);
+          return Boolean(ok);
+        } catch {
+          return false;
+        }
+      }
+
+      function flashCopied(button, ok) {
+        const original = button.dataset.label || button.textContent;
+        button.dataset.label = original;
+        button.textContent = ok ? '已复制 ✓' : '复制失败';
+        setTimeout(() => {
+          button.textContent = button.dataset.label || original;
+          delete button.dataset.label;
+        }, 1200);
+      }
+
+      async function copyToClipboard(text, sourceEl, button) {
+        const ok = await writeClipboard(text);
+        flashCopied(button, ok);
+        if (ok) {
+          log(`已复制 ${text.length > 44 ? `${text.slice(0, 44)}…` : text}`, 'ok');
+          return;
+        }
+        if (sourceEl) selectText(sourceEl);
+        log('剪贴板不可用，已选中目标文本，请按 ⌘C 手动复制', 'warn');
       }
 
       function currentPort() {
@@ -576,6 +748,11 @@
           return;
         }
 
+        if (pluginMessage.type === 'plugin-selection') {
+          renderSelection(pluginMessage.selection || pluginMessage);
+          return;
+        }
+
         if (pluginMessage.type === 'plugin-storage') {
           if (pluginMessage.key === STORAGE_PORT_KEY) applyStoredPort(pluginMessage.value);
           boot();
@@ -621,6 +798,22 @@
       document.getElementById('refreshEnv').onclick = () => {
         parent.postMessage({ pluginMessage: { type: 'plugin-env-request' } }, '*');
       };
+      function requestSelection() {
+        parent.postMessage({ pluginMessage: { type: 'plugin-selection-request' } }, '*');
+      }
+      selectionListEl.addEventListener('click', event => {
+        const button = event.target.closest('[data-copy]');
+        if (!button) return;
+        copyToClipboard(button.getAttribute('data-copy'), button.closest('.sel-row').querySelector('.sel-id'), button);
+      });
+      toggleWatchEl.onclick = () => {
+        selectionWatching = !selectionWatching;
+        renderSelectionMode(currentMode());
+        parent.postMessage({ pluginMessage: { type: 'plugin-selection-watch', on: selectionWatching } }, '*');
+        log(selectionWatching ? '继续跟随画布选区' : '已暂停跟随画布选区');
+      };
+      refreshSelectionEl.onclick = requestSelection;
+      copySelectionEl.onclick = () => copyToClipboard(selectionContextText(), selectionListEl, copySelectionEl);
       const onSettingsChange = () => {
         userEditedSettings = true;
         showEndpoint();
@@ -631,6 +824,7 @@
       tokenEl.addEventListener('input', onSettingsChange);
 
       parent.postMessage({ pluginMessage: { type: 'plugin-env-request' } }, '*');
+      parent.postMessage({ pluginMessage: { type: 'plugin-selection-request' } }, '*');
       parent.postMessage({ pluginMessage: { type: 'plugin-storage-get', key: STORAGE_PORT_KEY } }, '*');
       bootTimer = setTimeout(boot, 800);
     </script>

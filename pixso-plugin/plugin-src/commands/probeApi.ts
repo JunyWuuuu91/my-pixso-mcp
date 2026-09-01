@@ -316,7 +316,8 @@ function probeContext(): Record<string, unknown> {
     pageCount: pixso.root?.children?.length,
     currentPageName: pixso.currentPage?.name,
     currentPageChildren: pixso.currentPage?.children?.length,
-    selectionCount: Array.isArray(selection) ? selection.length : describe(selection)
+    selectionCount: Array.isArray(selection) ? selection.length : describe(selection),
+    pixsoOn: describe(api['on'])
   };
 }
 

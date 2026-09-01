@@ -3,6 +3,7 @@ import { getDocument } from './commands/getDocument.js';
 import { probeApi, type ProbeApiInput } from './commands/probeApi.js';
 import { findDecorativeNodes, type FindDecorativeNodesInput } from './commands/findDecorativeNodes.js';
 import { exportNodes, type ExportNodesInput } from './commands/exportNodes.js';
+import { getSelection, type GetSelectionInput } from './commands/getSelection.js';
 
 type CommandHandler = (input: Record<string, unknown>) => unknown | Promise<unknown>;
 
@@ -11,7 +12,8 @@ const COMMANDS: Record<string, CommandHandler> = {
   get_document: input => getDocument(input as Parameters<typeof getDocument>[0]),
   probe_api: input => probeApi(input as ProbeApiInput),
   find_decorative_nodes: input => findDecorativeNodes(input as FindDecorativeNodesInput),
-  export_nodes_png: input => exportNodes(input as ExportNodesInput)
+  export_nodes_png: input => exportNodes(input as ExportNodesInput),
+  get_selection: input => getSelection(input as GetSelectionInput)
 };
 
 export function knownCommands(): string[] {
