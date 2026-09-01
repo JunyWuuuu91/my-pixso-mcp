@@ -21,7 +21,7 @@ AUTHORIZATION_ERROR：当前账号在企业/团队中没有全功能/研发席�
 
 ## 顺带澄清一个早前的误判
 
-`Cannot use this plugin in "preview" editor type` 与付费无关，是我们自己的 `manifest.json` 没声明 `preview`。Pixso 的 `editorType` 取值：`pixso`(编辑) · `preview`(预览) · `history`(历史) · `dev`(研发) · `historyDev`(历史研发) · `singleFrame`(单画板)，不写默认仅编辑。本项目已声明 `["pixso","preview","dev","singleFrame"]`。
+`Cannot use this plugin in "preview" editor type` 与付费无关，是我们自己的 `manifest.json` 没声明 `preview`。Pixso 的 `editorType` 取值：`pixso`(编辑) · `preview`(预览) · `history`(历史) · `dev`(研发) · `historyDev`(历史研发) · `singleFrame`(单画板)，不写默认仅编辑。本项目已声明 `["pixso","preview","dev","singleFrame"]`，并已实测：未上架的开发插件在预览模式下正常运行并取到团队稿数据，既不需要上架审核，也不需要编辑权限。
 
 ## 其它限制（即使有席位也在）
 

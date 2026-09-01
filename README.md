@@ -33,7 +33,11 @@ AUTHORIZATION_ERROR：当前账号在企业/团队中没有全功能/研发席�
 | `historyDev` | 历史研发 |
 | `singleFrame` | 单画板 |
 
-不写等于只允许编辑模式。本项目声明 `["pixso", "preview", "dev", "singleFrame"]`——**含 `preview`，所以打开分享链接的预览模式时插件也能运行**。若在预览模式看到 `Cannot use this plugin in "preview" editor type`，原因是 manifest 没声明 `preview`，不是权限或付费问题。
+不写等于只允许编辑模式。本项目声明 `["pixso", "preview", "dev", "singleFrame"]`。
+
+**已实测（2026-09-01）**：未上架的本地开发插件在预览模式下即可运行并读取团队空间稿子（`get_document` 25ms 返回 2 页 / 13 个顶层节点），所以**不需要走插件广场上架审核，也不需要编辑权限**。若在预览模式看到 `Cannot use this plugin in "preview" editor type`，原因是 manifest 没声明 `preview`，不是权限或付费问题。
+
+预览模式下的只读 API 是否有额外限制（变量、样式、组件定义能否全部拿到）尚未验证，是阶段 2 第一批要探的点。
 
 ## 快速开始
 
