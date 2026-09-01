@@ -3,10 +3,6 @@
     "pixso": {
       "type": "http",
       "url": "http://127.0.0.1:3678/mcp"
-    },
-    "pixso-official": {
-      "type": "http",
-      "url": "http://127.0.0.1:3667/mcp"
     }
   }
 }

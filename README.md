@@ -18,7 +18,7 @@ Pixso 桌面客户端（≥ 2.2.0）自带官方 MCP（`127.0.0.1:3667`，实测
 AUTHORIZATION_ERROR：当前账号在企业/团队中没有全功能/研发席位，因此无法调用 MCP 工具。
 ```
 
-个人空间可用，团队共享稿不可用。只要目标是别人共享的团队设计稿，插件路线就是唯一不付费的路径。官方通道的完整接入方式与能力边界见 [`docs/pixso-official-mcp.md`](docs/pixso-official-mcp.md)，两者可以同时挂着。
+个人空间可用，团队共享稿不可用。只要目标是别人共享的团队设计稿，插件路线就是唯一不付费的路径。完整证据、误判澄清与"将来若升级账号怎么接"见 [`docs/decision-official-mcp.md`](docs/decision-official-mcp.md)。
 
 ## 预览模式与 editorType
 
@@ -61,7 +61,7 @@ CLI 选项：`--transport http|stdio`、`--host`、`--mcp-port`、`--ws-port`、
 | pi | `~/.pi/agent/mcp.json` 或项目 `.mcp.json`，同上（需 `pi-mcp-adapter` ≥ 2.x） |
 | Codex | `codex mcp add pixso --url http://127.0.0.1:3678/mcp` |
 
-两份片段（自建 + 官方）都在 [`mcp/pixso.json`](mcp/pixso.json)。注意 MCP 客户端必须用 `http`/`url` 类型——这两个端点都只接受 POST 的 Streamable HTTP，配成 `sse` 会连不上。
+配置片段：[`mcp/pixso.json`](mcp/pixso.json)。必须用 `http`/`url` 类型——Pixso 系端点只接受 POST 的 Streamable HTTP，配成 `sse` 连不上。
 
 ## 设计要点
 
