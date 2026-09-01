@@ -1,11 +1,13 @@
 import { health } from './commands/health.js';
 import { getDocument } from './commands/getDocument.js';
+import { probeApi, type ProbeApiInput } from './commands/probeApi.js';
 
 type CommandHandler = (input: Record<string, unknown>) => unknown | Promise<unknown>;
 
 const COMMANDS: Record<string, CommandHandler> = {
   health: () => health(),
-  get_document: input => getDocument(input as Parameters<typeof getDocument>[0])
+  get_document: input => getDocument(input as Parameters<typeof getDocument>[0]),
+  probe_api: input => probeApi(input as ProbeApiInput)
 };
 
 export function knownCommands(): string[] {

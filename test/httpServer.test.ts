@@ -110,7 +110,7 @@ describe('HTTP MCP server + WS bridge', () => {
 
     const list = await mcpRequest({ jsonrpc: '2.0', id: 2, method: 'tools/list' }, sessionId ?? undefined);
     const toolNames = list.body.result.tools.map((tool: any) => tool.name).sort();
-    expect(toolNames).toEqual(['get_document', 'health']);
+    expect(toolNames).toEqual(['get_document', 'health', 'probe_api']);
   });
 
   it('calls get_document end to end through the fake plugin', async () => {

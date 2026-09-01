@@ -7,7 +7,7 @@ export async function health(): Promise<Record<string, unknown>> {
     plugin: {
       name: PLUGIN_NAME,
       version: PLUGIN_VERSION,
-      commands: ['health', 'get_document']
+      commands: ['health', 'get_document', 'probe_api']
     },
     document: {
       name: pixso.root?.name,
