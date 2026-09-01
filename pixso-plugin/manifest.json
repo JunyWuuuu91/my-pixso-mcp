@@ -1,0 +1,14 @@
+{
+  "name": "My Pixso MCP",
+  "id": "my-pixso-mcp-local",
+  "api": "1.0.0",
+  "main": "main.js",
+  "ui": "ui.html",
+  "editorType": ["pixso", "preview", "dev", "singleFrame"],
+  "menu": [
+    {
+      "name": "Connect to Local MCP",
+      "command": "connect"
+    }
+  ]
+}

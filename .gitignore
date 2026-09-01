@@ -1,0 +1,17 @@
+node_modules/
+dist/
+coverage/
+.env
+.env.*
+.DS_Store
+*.log
+.claude/
+.codex/
+.qoder/
+.logs/
+output/
+*.tgz
+.idea/
+.vscode/
+pixso-plugin/main.js
+pixso-plugin/main.js.map
