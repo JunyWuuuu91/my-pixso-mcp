@@ -66,6 +66,14 @@ function buildDecorativeFixture() {
     height: 22,
     children: [{ id: 'sf1a', name: '矢量 5901', type: 'VECTOR', width: 0, height: 0 }]
   };
+  const svgFrameTwin = {
+    id: 'sf2',
+    name: 'svg',
+    type: 'FRAME',
+    width: 22.001,
+    height: 22,
+    children: [{ id: 'sf2a', name: '矢量 5902', type: 'VECTOR', width: 0, height: 0 }]
+  };
   const textChip = {
     id: 'ch1',
     name: '标签',
@@ -107,7 +115,7 @@ function buildDecorativeFixture() {
     type: 'PAGE',
     width: 0,
     height: 0,
-    children: [svgFrame, textChip, strip, busyFrame, emptyFrame, layoutWrapper, labTest, labFlag]
+    children: [svgFrame, svgFrameTwin, textChip, strip, busyFrame, emptyFrame, layoutWrapper, labTest, labFlag]
   };
   return {
     root: { id: 'doc-1', name: '示例文件', children: [pageA, pageB, pageC] },
@@ -315,35 +323,34 @@ describe('pixso plugin skeleton', () => {
 });
 
 describe('decorative node scan', () => {
+  const idsOf = (result: any) => (result.groups as any[]).flatMap(group => group.ids).sort();
+  const groupOf = (result: any, id: string) =>
+    (result.groups as any[]).find(group => (group.ids as string[]).includes(id));
+
   it('classifies emoji text, small graphics, export settings and name hints', async () => {
     const { dispatchCommand } = await runPlugin(buildDecorativeFixture());
     const response = await dispatchCommand('scan-1', 'find_decorative_nodes', { page: '图标页' });
     expect(response?.ok).toBe(true);
     expect(response?.result.page).toMatchObject({ id: 'p1', name: '图标页' });
 
-    const candidates = response?.result.candidates;
-    expect(candidates.map((candidate: any) => candidate.id)).toEqual(['t1', 'v1', 'g1', 'e1']);
-
-    const byId = Object.fromEntries(candidates.map((candidate: any) => [candidate.id, candidate]));
-    expect(byId.t1.reasons).toContain('emoji-text');
-    expect(byId.t1.reasons).toContain('name-hint');
-    expect(byId.t1.emoji).toBe('😀');
-    expect(byId.v1.reasons).toEqual(['small-graphic', 'name-hint']);
-    expect(byId.g1.reasons).toEqual(['small-graphic', 'name-hint']);
-    expect(byId.e1.reasons).toEqual(['export-setting']);
+    const result = response?.result;
+    expect(idsOf(result)).toEqual(['e1', 'g1', 't1', 'v1']);
+    expect(groupOf(result, 't1').reasons).toEqual(['emoji-text', 'name-hint']);
+    expect(groupOf(result, 't1').emoji).toBe('😀');
+    expect(groupOf(result, 'v1').reasons).toEqual(['small-graphic', 'name-hint']);
+    expect(groupOf(result, 'g1').reasons).toEqual(['small-graphic', 'name-hint']);
+    expect(groupOf(result, 'e1').reasons).toEqual(['export-setting']);
 
     // Matched candidates are not descended into, invisible nodes are skipped.
-    expect(candidates.some((candidate: any) => candidate.id === 'r1')).toBe(false);
-    expect(candidates.some((candidate: any) => candidate.id === 'h1')).toBe(false);
     // Micro vector fragments are filtered by the default 8px minimum.
-    expect(candidates.some((candidate: any) => candidate.id === 'm1')).toBe(false);
+    expect(idsOf(result).filter(id => ['r1', 'h1', 'm1'].includes(id))).toEqual([]);
   });
 
   it('keeps micro fragments when minNodeSizePx is lowered', async () => {
     const { dispatchCommand } = await runPlugin(buildDecorativeFixture());
     const response = await dispatchCommand('scan-6', 'find_decorative_nodes', { page: '图标页', minNodeSizePx: 1 });
     expect(response?.ok).toBe(true);
-    expect(response?.result.candidates.map((candidate: any) => candidate.id)).toContain('m1');
+    expect(idsOf(response?.result)).toContain('m1');
   });
 
   it('resolves pages by name substring and rejects unknown pages', async () => {
@@ -364,7 +371,8 @@ describe('decorative node scan', () => {
     const { dispatchCommand } = await runPlugin(buildDecorativeFixture());
     const response = await dispatchCommand('scan-4', 'find_decorative_nodes', { page: '图标页', maxCandidates: 2 });
     expect(response?.ok).toBe(true);
-    expect(response?.result.candidates).toHaveLength(2);
+    expect(response?.result.candidateCount).toBe(2);
+    expect(idsOf(response?.result)).toHaveLength(2);
     expect(response?.result.truncatedCandidates).toBe(true);
   });
 
@@ -378,28 +386,31 @@ describe('decorative node scan', () => {
     expect(proposal.options.map((option: any) => option.typicalPx)).toEqual([32, 64, 96]);
   });
 
-  it('surfaces svg icon containers without their inner vectors', async () => {
+  it('collapses repeated icon containers into one group and keeps every id', async () => {
     const { dispatchCommand } = await runPlugin(buildDecorativeFixture());
     const response = await dispatchCommand('scan-7', 'find_decorative_nodes', { page: '容器页' });
     expect(response?.ok).toBe(true);
-    const candidates = response?.result.candidates;
-    expect(candidates.map((candidate: any) => candidate.id)).toEqual(['sf1', 'tx2']);
-    expect(candidates[0].reasons).toEqual(['name-hint']);
-    // Small layout containers must not be mistaken for icons: the wrapper is not a
-    // candidate and its rectangle child is too small a shape to matter either.
-    expect(candidates.some((candidate: any) => ['ch1', 'st1', 'bz1', 'em1', 'lw1', 'lw1a'].includes(candidate.id))).toBe(
-      false
+    const result = response?.result;
+
+    // svgFrame is 22px wide and its twin 22.001px — sub-pixel noise must not split them.
+    expect(result.groups).toHaveLength(2);
+    const svgGroup = groupOf(result, 'sf1');
+    expect(svgGroup).toMatchObject({ name: 'svg', type: 'FRAME', width: 22, count: 2, reasons: ['name-hint'] });
+    expect(svgGroup.ids).toEqual(['sf1', 'sf2']);
+    expect(idsOf(result)).toEqual(['sf1', 'sf2', 'tx2']);
+
+    // Small layout containers must not be mistaken for icons.
+    expect(idsOf(result).filter(id => ['ch1', 'st1', 'bz1', 'em1', 'lw1', 'lw1a', 'sf1a', 'sf2a'].includes(id))).toEqual(
+      []
     );
   });
 
   it('no longer reads lab names as name hints', async () => {
     const { dispatchCommand } = await runPlugin(buildDecorativeFixture());
     const response = await dispatchCommand('scan-8', 'find_decorative_nodes', { page: '容器页' });
-    const byId = Object.fromEntries(
-      response?.result.candidates.map((candidate: any) => [candidate.id, candidate])
-    );
-    expect(byId.tx1).toBeUndefined();
-    expect(byId.tx2.reasons).toEqual(['name-hint']);
+    const result = response?.result;
+    expect(idsOf(result)).not.toContain('tx1');
+    expect(groupOf(result, 'tx2').reasons).toEqual(['name-hint']);
   });
 });
 

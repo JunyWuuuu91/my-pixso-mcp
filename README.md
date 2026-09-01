@@ -76,8 +76,8 @@ CLI 选项：`--transport http|stdio`、`--host`、`--mcp-port`、`--ws-port`、
 ## 现状
 
 - 阶段 1 完成并**在真实客户端 Pixso 2.3.1 端到端验证**：`health` + `get_document`。
-- **装饰元素批量导出**已同样实测闭环：`find_decorative_nodes` 按页面扫出 emoji / 图标 / 已标记导出项候选并给出倍数建议（中位数边长 → 目标 128px），用户拍板后 `export_nodes_png` 用节点级 `exportAsync` 渲染，PNG 由服务端落盘到 `pixso-exports/<页面名>/`，只回传路径（base64 不进 MCP 文本）。
-- **选区回显与定向**：面板「当前选区」卡片实时显示用户点选节点的 id / 类型 / 尺寸 / 祖先路径，可一键复制成给 AI 的上下文清单；MCP 侧 `get_selection` 读同一批节点，用户只需说「我选中的这个」。**待真机确认** Pixso 是否提供选区变更事件——没有则插件按 700ms 轮询，面板 badge 会显示实际模式。
+- **装饰元素批量导出**已同样实测闭环：`find_decorative_nodes` 按页面扫出 emoji 文本 / `svg` 图标容器 / 已标记导出项候选并给出倍数建议（中位数边长 → 目标 128px），用户拍板后 `export_nodes_png` 用节点级 `exportAsync` 渲染，PNG 由服务端落盘到 `pixso-exports/<页面名>/`，只回传路径（base64 不进 MCP 文本）。真机测量确认 SVG 图标是名为 `svg` 的 FRAME 容器，里面的矢量只是局部路径（一个火苗两条 path），所以扫描按容器名捞容器而不是捞碎片。扫描结果按「类型 + 名字 + 尺寸 + 命中原因」分组（`groups`，含 `count` 和全部 `ids`），一页几百个重复图标也只占几组，`maxCandidates` 默认因此抬到 500（上限 2000）。
+- **选区回显与定向**：面板「当前选区」卡片实时显示用户点选节点的 id / 类型 / 尺寸 / 祖先路径，可一键复制成给 AI 的上下文清单；MCP 侧 `get_selection` 读同一批节点，用户只需说「我选中的这个」。真机测得 Pixso 2.3.1 preview 下 `pixso.on` 存在但订阅 `currentselectionchange` 失败，插件按 700ms 轮询跟随，面板 badge 显示实际模式（`轮询跟随`）。
 - 阶段 2 待做：提取内核。
 - 官方 37 工具清单与入参见 [`docs/pixso-mcp-tools.md`](docs/pixso-mcp-tools.md)；`node scripts/probe-mcp.mjs tools | call <tool> '<json>'` 可随时重探官方端点。
 

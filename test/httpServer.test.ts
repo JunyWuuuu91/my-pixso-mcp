@@ -31,8 +31,18 @@ const FIND_DECORATIVE_FIXTURE = {
   page: { id: 'p1', name: '首页' },
   visited: 3,
   truncatedVisited: false,
-  candidates: [{ id: 'v1', name: 'icon-star', type: 'VECTOR', width: 24, height: 24, reasons: ['small-graphic', 'name-hint'] }],
-  candidateCount: 1,
+  groups: [
+    {
+      name: 'icon-star',
+      type: 'VECTOR',
+      width: 24,
+      height: 24,
+      reasons: ['small-graphic', 'name-hint'],
+      count: 2,
+      ids: ['v1', 'v2']
+    }
+  ],
+  candidateCount: 2,
   truncatedCandidates: false,
   scaleProposal: {
     medianSizePx: 24,
@@ -235,7 +245,7 @@ describe('HTTP MCP server + WS bridge', () => {
     expect(call.status).toBe(200);
     expect(call.body.result.isError).toBeFalsy();
     const payload = JSON.parse(call.body.result.content[0].text);
-    expect(payload.candidates[0]).toMatchObject({ id: 'v1', name: 'icon-star' });
+    expect(payload.groups[0]).toMatchObject({ name: 'icon-star', ids: ['v1', 'v2'] });
     expect(payload.scaleProposal.recommended).toBe(3);
   });
 
