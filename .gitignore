@@ -10,6 +10,7 @@ coverage/
 .qoder/
 .logs/
 output/
+pixso-exports/
 *.tgz
 .idea/
 .vscode/

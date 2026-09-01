@@ -33,7 +33,42 @@ function buildDocumentFixture() {
   };
 }
 
-async function runPlugin(fixture = buildDocumentFixture(), storage = new Map<string, unknown>()) {
+function buildDecorativeFixture() {
+  const emojiText = { id: 't1', name: '表情', type: 'TEXT', width: 32, height: 32, characters: '😀' };
+  const iconStar = { id: 'v1', name: 'icon-star', type: 'VECTOR', width: 24, height: 24 };
+  const screen = {
+    id: 'f1',
+    name: '首页',
+    type: 'FRAME',
+    width: 400,
+    height: 300,
+    children: [
+      {
+        id: 'g1',
+        name: '图标/支付',
+        type: 'GROUP',
+        width: 40,
+        height: 40,
+        children: [{ id: 'r1', name: '内部图形', type: 'RECTANGLE', width: 10, height: 10 }]
+      },
+      { id: 'e1', name: '导出图', type: 'RECTANGLE', width: 60, height: 60, exportSettings: [{ format: 'PNG' }] },
+      { id: 'h1', name: 'icon-hidden', type: 'VECTOR', width: 24, height: 24, visible: false },
+      { id: 'm1', name: '矢量碎片', type: 'VECTOR', width: 2, height: 1 }
+    ]
+  };
+  const pageA = { id: 'p1', name: '图标页', type: 'PAGE', width: 0, height: 0, children: [emojiText, iconStar, screen] };
+  const pageB = { id: 'p2', name: '组件库', type: 'PAGE', width: 0, height: 0, children: [] };
+  return {
+    root: { id: 'doc-1', name: '示例文件', children: [pageA, pageB] },
+    currentPage: pageA
+  };
+}
+
+async function runPlugin(
+  fixture = buildDocumentFixture(),
+  storage = new Map<string, unknown>(),
+  options: { withExport?: boolean } = {}
+) {
   const result = await build({
     entryPoints: [path.join(root, 'pixso-plugin/plugin-src/index.ts')],
     bundle: true,
@@ -76,6 +111,22 @@ async function runPlugin(fixture = buildDocumentFixture(), storage = new Map<str
       }
     }
   });
+
+  const exportLog: Array<{ id: string; settings: unknown }> = [];
+  if (options.withExport) {
+    // The bytes must come from the sandbox realm so `instanceof Uint8Array`
+    // holds inside the vm context (cross-realm instanceof fails otherwise).
+    const sandboxBytes = vm.runInContext('Uint8Array.from([137, 80, 78, 71])', context);
+    const attach = (node: any) => {
+      node.exportAsync = async (settings: unknown) => {
+        exportLog.push({ id: node.id, settings });
+        return sandboxBytes;
+      };
+      (node.children ?? []).forEach(attach);
+    };
+    fixture.root.children.forEach((page: any) => (page.children ?? []).forEach(attach));
+  }
+
   vm.runInContext(code, context);
 
   const dispatchCommand = async (id: string, command: string, input: Record<string, unknown> = {}) => {
@@ -84,7 +135,7 @@ async function runPlugin(fixture = buildDocumentFixture(), storage = new Map<str
     return posted.find(message => message.response?.id === id)?.response;
   };
 
-  return { context, posted, showUiCalls, dispatchCommand, storage };
+  return { context, posted, showUiCalls, dispatchCommand, storage, exportLog };
 }
 
 describe('pixso plugin skeleton', () => {
@@ -165,4 +216,169 @@ describe('pixso plugin skeleton', () => {
     expect(response?.error).toContain('Unknown My Pixso MCP command');
     expect(response?.error).toContain('get_document');
   });
+});
+
+describe('decorative node scan', () => {
+  it('classifies emoji text, small graphics, export settings and name hints', async () => {
+    const { dispatchCommand } = await runPlugin(buildDecorativeFixture());
+    const response = await dispatchCommand('scan-1', 'find_decorative_nodes', { page: '图标页' });
+    expect(response?.ok).toBe(true);
+    expect(response?.result.page).toMatchObject({ id: 'p1', name: '图标页' });
+
+    const candidates = response?.result.candidates;
+    expect(candidates.map((candidate: any) => candidate.id)).toEqual(['t1', 'v1', 'g1', 'e1']);
+
+    const byId = Object.fromEntries(candidates.map((candidate: any) => [candidate.id, candidate]));
+    expect(byId.t1.reasons).toContain('emoji-text');
+    expect(byId.t1.reasons).toContain('name-hint');
+    expect(byId.t1.emoji).toBe('😀');
+    expect(byId.v1.reasons).toEqual(['small-graphic', 'name-hint']);
+    expect(byId.g1.reasons).toEqual(['small-graphic', 'name-hint']);
+    expect(byId.e1.reasons).toEqual(['export-setting']);
+
+    // Matched candidates are not descended into, invisible nodes are skipped.
+    expect(candidates.some((candidate: any) => candidate.id === 'r1')).toBe(false);
+    expect(candidates.some((candidate: any) => candidate.id === 'h1')).toBe(false);
+    // Micro vector fragments are filtered by the default 8px minimum.
+    expect(candidates.some((candidate: any) => candidate.id === 'm1')).toBe(false);
+  });
+
+  it('keeps micro fragments when minNodeSizePx is lowered', async () => {
+    const { dispatchCommand } = await runPlugin(buildDecorativeFixture());
+    const response = await dispatchCommand('scan-6', 'find_decorative_nodes', { page: '图标页', minNodeSizePx: 1 });
+    expect(response?.ok).toBe(true);
+    expect(response?.result.candidates.map((candidate: any) => candidate.id)).toContain('m1');
+  });
+
+  it('resolves pages by name substring and rejects unknown pages', async () => {
+    const { dispatchCommand } = await runPlugin(buildDecorativeFixture());
+
+    const partial = await dispatchCommand('scan-2', 'find_decorative_nodes', { page: '图标' });
+    expect(partial?.ok).toBe(true);
+    expect(partial?.result.page.name).toBe('图标页');
+
+    const unknown = await dispatchCommand('scan-3', 'find_decorative_nodes', { page: '不存在' });
+    expect(unknown?.ok).toBe(false);
+    expect(unknown?.error).toContain('Page "不存在" not found');
+    expect(unknown?.error).toContain('"图标页"');
+    expect(unknown?.error).toContain('"组件库"');
+  });
+
+  it('caps the candidate list and reports truncation', async () => {
+    const { dispatchCommand } = await runPlugin(buildDecorativeFixture());
+    const response = await dispatchCommand('scan-4', 'find_decorative_nodes', { page: '图标页', maxCandidates: 2 });
+    expect(response?.ok).toBe(true);
+    expect(response?.result.candidates).toHaveLength(2);
+    expect(response?.result.truncatedCandidates).toBe(true);
+  });
+
+  it('proposes a scale from the median candidate size', async () => {
+    const { dispatchCommand } = await runPlugin(buildDecorativeFixture());
+    const response = await dispatchCommand('scan-5', 'find_decorative_nodes', { page: '图标页' });
+    const proposal = response?.result.scaleProposal;
+    // Candidate edges 24/32/40/60 → lower median 32; 3x lands nearest 128px.
+    expect(proposal.medianSizePx).toBe(32);
+    expect(proposal.recommended).toBe(3);
+    expect(proposal.options.map((option: any) => option.typicalPx)).toEqual([32, 64, 96]);
+  });
+});
+
+describe('decorative node export', () => {
+  function nodeById(fixture: ReturnType<typeof buildDecorativeFixture>, id: string): any {
+    for (const page of fixture.root.children) {
+      const stack = [...page.children];
+      while (stack.length > 0) {
+        const node = stack.pop() as any;
+        if (node.id === id) return node;
+        for (const child of node.children ?? []) stack.push(child);
+      }
+    }
+    throw new Error(`fixture node ${id} not found`);
+  }
+
+  it('exports nodes as base64 PNG bytes', async () => {
+    const { dispatchCommand, exportLog } = await runPlugin(buildDecorativeFixture(), undefined, { withExport: true });
+    const response = await dispatchCommand('export-1', 'export_nodes_png', { nodeIds: ['v1', 'e1'], scale: 2 });
+    expect(response?.ok).toBe(true);
+    expect(response?.result.scale).toBe(2);
+    expect(response?.result.skipped).toEqual([]);
+    expect(response?.result.exported).toHaveLength(2);
+
+    const expectedBase64 = Buffer.from([137, 80, 78, 71]).toString('base64');
+    const star = response?.result.exported.find((entry: any) => entry.id === 'v1');
+    expect(star.fileNameSafe).toBe('icon-star');
+    expect(star.bytesBase64).toBe(expectedBase64);
+    expect(Buffer.from(star.bytesBase64, 'base64')).toEqual(Buffer.from([137, 80, 78, 71]));
+    expect(response?.result.totalBase64Bytes).toBe(expectedBase64.length * 2);
+
+    expect(exportLog.map(entry => entry.id)).toEqual(['v1', 'e1']);
+    expect(exportLog[0]?.settings).toEqual({ format: 'PNG', constraint: { type: 'SCALE', value: 2 } });
+  });
+
+  it('skips node ids that do not resolve', async () => {
+    const { dispatchCommand } = await runPlugin(buildDecorativeFixture(), undefined, { withExport: true });
+    const response = await dispatchCommand('export-2', 'export_nodes_png', { nodeIds: ['nope'], scale: 1 });
+    expect(response?.ok).toBe(true);
+    expect(response?.result.exported).toEqual([]);
+    expect(response?.result.skipped).toEqual([{ id: 'nope', reason: 'not found in this document' }]);
+  });
+
+  it('fails fast when exportAsync is missing', async () => {
+    const { dispatchCommand } = await runPlugin(buildDecorativeFixture());
+    const response = await dispatchCommand('export-3', 'export_nodes_png', { nodeIds: ['v1'], scale: 1 });
+    expect(response?.ok).toBe(false);
+    expect(response?.error).toContain('node.exportAsync is not available');
+  });
+
+  it('keeps both error messages when every export shape fails', async () => {
+    const fixture = buildDecorativeFixture();
+    nodeById(fixture, 'v1').exportAsync = async (settings: any) => {
+      throw new Error(settings.constraint ? 'constraint-shape-failed' : 'scale-shape-failed');
+    };
+    const { dispatchCommand } = await runPlugin(fixture);
+    const response = await dispatchCommand('export-4', 'export_nodes_png', { nodeIds: ['v1'], scale: 1 });
+    expect(response?.ok).toBe(true);
+    expect(response?.result.exported).toEqual([]);
+    const reason = response?.result.skipped[0]?.reason as string;
+    expect(reason).toContain('constraint-shape-failed');
+    expect(reason).toContain('scale-shape-failed');
+  });
+
+  it('normalizes plain number arrays into bytes', async () => {
+    const fixture = buildDecorativeFixture();
+    nodeById(fixture, 'v1').exportAsync = async () => [137, 80, 78, 71];
+    const { dispatchCommand } = await runPlugin(fixture);
+    const response = await dispatchCommand('export-5', 'export_nodes_png', { nodeIds: ['v1'], scale: 1 });
+    expect(response?.ok).toBe(true);
+    expect(response?.result.exported[0].bytesBase64).toBe(Buffer.from([137, 80, 78, 71]).toString('base64'));
+  });
+
+  it('skips images over the per-image cap without truncating', async () => {
+    const fixture = buildDecorativeFixture();
+    const { context, dispatchCommand } = await runPlugin(fixture);
+    nodeById(fixture, 'v1').exportAsync = async () => vm.runInContext('new Uint8Array(2097153)', context);
+    const response = await dispatchCommand('export-6', 'export_nodes_png', { nodeIds: ['v1'], scale: 3 });
+    expect(response?.ok).toBe(true);
+    expect(response?.result.exported).toEqual([]);
+    expect(response?.result.skipped[0].reason).toContain('image too large');
+  });
+
+  it('aborts when the cumulative base64 payload exceeds the cap', async () => {
+    const fixture = buildDecorativeFixture();
+    const { context, dispatchCommand } = await runPlugin(fixture);
+    // Five 2MB images pass the per-image cap, but their base64 (5 × ~2.67MB)
+    // exceeds the 12MB cumulative cap on the fifth node.
+    const huge = vm.runInContext('new Uint8Array(2000000)', context);
+    for (const id of ['v1', 'g1', 'e1', 't1', 'f1']) {
+      nodeById(fixture, id).exportAsync = async () => huge;
+    }
+    const response = await dispatchCommand('export-7', 'export_nodes_png', {
+      nodeIds: ['v1', 'g1', 'e1', 't1', 'f1'],
+      scale: 1
+    });
+    expect(response?.ok).toBe(true);
+    expect(response?.result.exported).toHaveLength(4);
+    expect(response?.result.aborted).toContain('total payload cap');
+    expect(response?.result.skipped.some((entry: any) => entry.id === 'f1')).toBe(true);
+  }, 20_000);
 });

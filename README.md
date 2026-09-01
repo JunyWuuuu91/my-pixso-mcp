@@ -37,7 +37,7 @@ AUTHORIZATION_ERROR：当前账号在企业/团队中没有全功能/研发席�
 
 **已实测（2026-09-01）**：未上架的本地开发插件在预览模式下即可运行并读取团队空间稿子（`get_document` 25ms 返回 2 页 / 13 个顶层节点），所以**不需要走插件广场上架审核，也不需要编辑权限**。若在预览模式看到 `Cannot use this plugin in "preview" editor type`，原因是 manifest 没声明 `preview`，不是权限或付费问题。
 
-预览模式下的只读 API 是否有额外限制（变量、样式、组件定义能否全部拿到）尚未验证，是阶段 2 第一批要探的点。
+预览模式下**节点级 `exportAsync` 已实测可用**（2026-09-01，Pixso 2.3.1 / apiVersion 2.0.0，`probe_api` 报 `exportAsync: function`，并真实导出过 emoji/矢量 PNG）。变量、样式、组件定义等其余只读面是否有额外限制仍未验证，是阶段 2 第一批要探的点。
 
 ## 快速开始
 
@@ -70,12 +70,13 @@ CLI 选项：`--transport http|stdio`、`--host`、`--mcp-port`、`--ws-port`、
 ## 设计要点
 
 - **命令级超时不断链**：插件会话超时只被标记为 stuck 并在后续调用中跳过，插件窗口不用重开。上游那种"卡住就得重开插件"的行为是本项目主要修掉的痛点。
-- **多会话路由**：同时开多个 Pixso 窗口时，命令优先派发给上报过运行环境（`version` / `editorType` / `fileKey`）且最近活跃的会话；旧 bundle 或未打开文件的会话只作兜底，并在 `/health` 与 `health` 工具里标成 `unknown-build`，`nextPick` 指出下一条命令会落到哪个窗口。`get_document` / `probe_api` 的 `file` 参数（fileKey 或文件名，可部分匹配）可把调用钉在某个文件上，匹配不到时报错并列出全部窗口，不会退到别的文件。
+- **多会话路由**：同时开多个 Pixso 窗口时，命令优先派发给上报过运行环境（`version` / `editorType` / `fileKey`）且最近活跃的会话；旧 bundle 或未打开文件的会话只作兜底，并在 `/health` 与 `health` 工具里标成 `unknown-build`，`nextPick` 指出下一条命令会落到哪个窗口。`get_document` / `probe_api` / `find_decorative_nodes` / `export_nodes_png` 的 `file` 参数（fileKey 或文件名，可部分匹配）可把调用钉在某个文件上，匹配不到时报错并列出全部窗口，不会退到别的文件。
 - **面向上下文预算的提取内核（阶段 2）**：`get_context` / `get_tokens` / `search_nodes` 单个入口、少量参数，输出按 token 预算裁剪，并把 hex 映射回变量与样式的语义名。
 
 ## 现状
 
 - 阶段 1 完成并**在真实客户端 Pixso 2.3.1 端到端验证**：`health` + `get_document`。
+- **装饰元素批量导出**已同样实测闭环：`find_decorative_nodes` 按页面扫出 emoji / 图标 / 已标记导出项候选并给出倍数建议（中位数边长 → 目标 128px），用户拍板后 `export_nodes_png` 用节点级 `exportAsync` 渲染，PNG 由服务端落盘到 `pixso-exports/<页面名>/`，只回传路径（base64 不进 MCP 文本）。
 - 阶段 2 待做：提取内核。
 - 官方 37 工具清单与入参见 [`docs/pixso-mcp-tools.md`](docs/pixso-mcp-tools.md)；`node scripts/probe-mcp.mjs tools | call <tool> '<json>'` 可随时重探官方端点。
 

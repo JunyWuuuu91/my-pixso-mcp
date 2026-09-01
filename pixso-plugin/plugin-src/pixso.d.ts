@@ -14,6 +14,10 @@ declare global {
     type: string;
     width: number;
     height: number;
+    visible?: boolean;
+    characters?: string;
+    exportSettings?: readonly unknown[];
+    exportAsync?: (settings: unknown) => Promise<unknown>;
     children?: readonly SceneNodeLike[];
   }
 
