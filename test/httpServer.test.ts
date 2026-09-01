@@ -42,6 +42,18 @@ const FIND_DECORATIVE_FIXTURE = {
   }
 };
 
+const SELECTION_FIXTURE = {
+  file: { id: 'doc-1', name: '集成测试文件' },
+  page: { id: 'p1', name: '首页' },
+  selectionMode: 'poll',
+  count: 2,
+  nodes: [
+    { id: 't1', name: '🎂', type: 'TEXT', width: 14.2, height: 21, path: ['首页', '登录页'] },
+    { id: 'v1', name: 'icon-star', type: 'VECTOR', width: 24, height: 24, childCount: 0, path: ['首页'] }
+  ],
+  truncated: false
+};
+
 const PNG_BYTES = [137, 80, 78, 71, 13, 10, 26, 10];
 const PNG_BASE64 = Buffer.from(PNG_BYTES).toString('base64');
 
@@ -103,6 +115,8 @@ beforeAll(async () => {
       pluginSocket.send(JSON.stringify({ id: message.id, ok: true, result: DOCUMENT_FIXTURE }));
     } else if (message.command === 'find_decorative_nodes') {
       pluginSocket.send(JSON.stringify({ id: message.id, ok: true, result: FIND_DECORATIVE_FIXTURE }));
+    } else if (message.command === 'get_selection') {
+      pluginSocket.send(JSON.stringify({ id: message.id, ok: true, result: SELECTION_FIXTURE }));
     } else if (message.command === 'export_nodes_png') {
       pluginSocket.send(JSON.stringify({ id: message.id, ok: true, result: EXPORT_FIXTURE }));
     } else {
@@ -149,7 +163,7 @@ describe('HTTP MCP server + WS bridge', () => {
 
     const list = await mcpRequest({ jsonrpc: '2.0', id: 2, method: 'tools/list' }, sessionId ?? undefined);
     const toolNames = list.body.result.tools.map((tool: any) => tool.name).sort();
-    expect(toolNames).toEqual(['export_nodes_png', 'find_decorative_nodes', 'get_document', 'health', 'probe_api']);
+    expect(toolNames).toEqual(['export_nodes_png', 'find_decorative_nodes', 'get_document', 'get_selection', 'health', 'probe_api']);
   });
 
   it('calls get_document end to end through the fake plugin', async () => {
@@ -223,6 +237,34 @@ describe('HTTP MCP server + WS bridge', () => {
     const payload = JSON.parse(call.body.result.content[0].text);
     expect(payload.candidates[0]).toMatchObject({ id: 'v1', name: 'icon-star' });
     expect(payload.scaleProposal.recommended).toBe(3);
+  });
+
+  it('proxies get_selection to the plugin', async () => {
+    const init = await mcpRequest({
+      jsonrpc: '2.0',
+      id: 1,
+      method: 'initialize',
+      params: { protocolVersion: '2025-03-26', capabilities: {}, clientInfo: { name: 'integration-test', version: '1.0' } }
+    });
+    const sessionId = init.headers.get('mcp-session-id') ?? undefined;
+    await mcpRequest({ jsonrpc: '2.0', method: 'notifications/initialized' }, sessionId);
+
+    const call = await mcpRequest(
+      {
+        jsonrpc: '2.0',
+        id: 6,
+        method: 'tools/call',
+        params: { name: 'get_selection', arguments: { maxNodes: 4 } }
+      },
+      sessionId
+    );
+    expect(call.status).toBe(200);
+    expect(call.body.result.isError).toBeFalsy();
+    const payload = JSON.parse(call.body.result.content[0].text);
+    expect(payload.page.name).toBe('首页');
+    expect(payload.selectionMode).toBe('poll');
+    expect(payload.nodes.map((node: any) => node.id)).toEqual(['t1', 'v1']);
+    expect(payload.nodes[0].path).toEqual(['首页', '登录页']);
   });
 
   it('writes exported PNGs to the output directory end to end', async () => {

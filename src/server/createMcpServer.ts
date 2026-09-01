@@ -5,6 +5,7 @@ import { registerHealthTool } from '../tools/health.js';
 import { registerGetDocumentTool } from '../tools/getDocument.js';
 import { registerProbeApiTool } from '../tools/probeApi.js';
 import { registerFindDecorativeNodesTool } from '../tools/findDecorativeNodes.js';
+import { registerGetSelectionTool } from '../tools/getSelection.js';
 import { registerExportNodesPngTool } from '../tools/exportNodesPng.js';
 
 export function createPixsoMcpServer(sessions: SessionRegistry, config: ServerConfig, startedAt = Date.now()): McpServer {
@@ -17,6 +18,7 @@ export function createPixsoMcpServer(sessions: SessionRegistry, config: ServerCo
   registerGetDocumentTool(server, sessions);
   registerProbeApiTool(server, sessions);
   registerFindDecorativeNodesTool(server, sessions);
+  registerGetSelectionTool(server, sessions);
   registerExportNodesPngTool(server, sessions);
   return server;
 }

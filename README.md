@@ -70,13 +70,14 @@ CLI 选项：`--transport http|stdio`、`--host`、`--mcp-port`、`--ws-port`、
 ## 设计要点
 
 - **命令级超时不断链**：插件会话超时只被标记为 stuck 并在后续调用中跳过，插件窗口不用重开。上游那种"卡住就得重开插件"的行为是本项目主要修掉的痛点。
-- **多会话路由**：同时开多个 Pixso 窗口时，命令优先派发给上报过运行环境（`version` / `editorType` / `fileKey`）且最近活跃的会话；旧 bundle 或未打开文件的会话只作兜底，并在 `/health` 与 `health` 工具里标成 `unknown-build`，`nextPick` 指出下一条命令会落到哪个窗口。`get_document` / `probe_api` / `find_decorative_nodes` / `export_nodes_png` 的 `file` 参数（fileKey 或文件名，可部分匹配）可把调用钉在某个文件上，匹配不到时报错并列出全部窗口，不会退到别的文件。
+- **多会话路由**：同时开多个 Pixso 窗口时，命令优先派发给上报过运行环境（`version` / `editorType` / `fileKey`）且最近活跃的会话；旧 bundle 或未打开文件的会话只作兜底，并在 `/health` 与 `health` 工具里标成 `unknown-build`，`nextPick` 指出下一条命令会落到哪个窗口。`get_document` / `probe_api` / `find_decorative_nodes` / `export_nodes_png` / `get_selection` 的 `file` 参数（fileKey 或文件名，可部分匹配）可把调用钉在某个文件上，匹配不到时报错并列出全部窗口，不会退到别的文件。
 - **面向上下文预算的提取内核（阶段 2）**：`get_context` / `get_tokens` / `search_nodes` 单个入口、少量参数，输出按 token 预算裁剪，并把 hex 映射回变量与样式的语义名。
 
 ## 现状
 
 - 阶段 1 完成并**在真实客户端 Pixso 2.3.1 端到端验证**：`health` + `get_document`。
 - **装饰元素批量导出**已同样实测闭环：`find_decorative_nodes` 按页面扫出 emoji / 图标 / 已标记导出项候选并给出倍数建议（中位数边长 → 目标 128px），用户拍板后 `export_nodes_png` 用节点级 `exportAsync` 渲染，PNG 由服务端落盘到 `pixso-exports/<页面名>/`，只回传路径（base64 不进 MCP 文本）。
+- **选区回显与定向**：面板「当前选区」卡片实时显示用户点选节点的 id / 类型 / 尺寸 / 祖先路径，可一键复制成给 AI 的上下文清单；MCP 侧 `get_selection` 读同一批节点，用户只需说「我选中的这个」。**待真机确认** Pixso 是否提供选区变更事件——没有则插件按 700ms 轮询，面板 badge 会显示实际模式。
 - 阶段 2 待做：提取内核。
 - 官方 37 工具清单与入参见 [`docs/pixso-mcp-tools.md`](docs/pixso-mcp-tools.md)；`node scripts/probe-mcp.mjs tools | call <tool> '<json>'` 可随时重探官方端点。
 
