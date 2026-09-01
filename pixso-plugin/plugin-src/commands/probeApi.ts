@@ -114,6 +114,8 @@ const DETAIL_PROPS = [
   'constraints'
 ];
 
+const NODE_METHODS = ['exportAsync', 'fillGeometry', 'hasMissingFont'];
+
 interface ReadProbe {
   name: string;
   available: boolean;
@@ -130,6 +132,7 @@ interface NodeProbe {
   type: string;
   present: Record<string, string>;
   missing: string[];
+  methods?: Record<string, string>;
   values?: Record<string, unknown>;
   childTypes?: Record<string, number>;
   error?: string;
@@ -241,7 +244,17 @@ function probeNode(target: { id: string; name: string; type: string }, deep: boo
     else present[prop] = describe(value);
   }
 
-  const probe: NodeProbe = { ...target, present, missing };
+  const methods: Record<string, string> = {};
+  for (const method of NODE_METHODS) {
+    try {
+      const value = record[method];
+      methods[method] = value === undefined ? 'missing' : typeof value;
+    } catch (error) {
+      methods[method] = `threw: ${error instanceof Error ? error.message : String(error)}`;
+    }
+  }
+
+  const probe: NodeProbe = { ...target, present, missing, methods };
   if (deep) {
     const values: Record<string, unknown> = {};
     for (const prop of DETAIL_PROPS) {
