@@ -69,7 +69,7 @@ CLI 选项：`--transport http|stdio`、`--host`、`--mcp-port`、`--ws-port`、
 
 ## 设计要点
 
-- **命令级超时不断链**：插件会话超时只被标记为 stuck 并在后续调用中跳过，插件窗口不用重开。上游那种"卡住就得重开插件"的行为是本项目主要修掉的痛点。
+- **命令级超时不断链**：插件会话超时只被标记为 stuck 并在后续调用中跳过，插件窗口不用重开。上游那种"卡住就得重开插件"的行为是本项目主要修掉的痛点。批量导出还在插件侧自带预算：单节点 `exportAsync` 8s deadline、整批 45s 上限（低于 60s 桥超时）、连续 3 次超时立即熔断，超时的节点变成带重跑提示的 `skipped`。依据是真机实测：Pixso 逐节点渲染约 780ms/个，连续导出近百个后渲染器饱和、之后的 `exportAsync` 再不返回，冷却 25s 同一批节点 100% 出图——所以饱和时正确动作是停批并重试，不是继续戳。
 - **多会话路由**：同时开多个 Pixso 窗口时，命令优先派发给上报过运行环境（`version` / `editorType` / `fileKey`）且最近活跃的会话；旧 bundle 或未打开文件的会话只作兜底，并在 `/health` 与 `health` 工具里标成 `unknown-build`，`nextPick` 指出下一条命令会落到哪个窗口。`get_document` / `probe_api` / `find_decorative_nodes` / `export_nodes_png` / `get_selection` 的 `file` 参数（fileKey 或文件名，可部分匹配）可把调用钉在某个文件上，匹配不到时报错并列出全部窗口，不会退到别的文件。
 - **面向上下文预算的提取内核（阶段 2）**：`get_context` / `get_tokens` / `search_nodes` 单个入口、少量参数，输出按 token 预算裁剪，并把 hex 映射回变量与样式的语义名。
 

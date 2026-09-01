@@ -24,6 +24,9 @@ const MAX_IMAGE_BYTES = 2_097_152;
 const MAX_TOTAL_BASE64 = 12_582_912;
 const LOOKUP_VISITED_CAP = 20_000;
 const BASE64_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+const PER_NODE_BUDGET_MS = 8_000;
+const COMMAND_BUDGET_MS = 45_000;
+const CONSECUTIVE_TIMEOUT_LIMIT = 3;
 
 function clamp(value: number, min: number, max: number): number {
   if (!Number.isFinite(value)) return min;
@@ -108,16 +111,35 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-async function renderNode(node: SceneNodeLike, scale: number): Promise<Uint8Array> {
+function withDeadline<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  if (typeof setTimeout !== 'function') return promise;
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms);
+    promise.then(
+      value => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      error => {
+        clearTimeout(timer);
+        reject(error);
+      }
+    );
+  });
+}
+
+async function renderNode(node: SceneNodeLike, scale: number, budgetMs: number): Promise<Uint8Array> {
   const exportAsync = node.exportAsync;
   if (typeof exportAsync !== 'function') {
     throw new Error('exportAsync missing on node');
   }
   const shapes = [{ format: 'PNG', constraint: { type: 'SCALE', value: scale } }, { format: 'PNG', scale }];
   const failures: string[] = [];
+  const startedAt = Date.now();
   for (const shape of shapes) {
+    const remainingMs = Math.max(1, budgetMs - (Date.now() - startedAt));
     try {
-      return toBytes(await exportAsync.call(node, shape));
+      return toBytes(await withDeadline(exportAsync.call(node, shape), remainingMs, 'exportAsync'));
     } catch (error) {
       failures.push(errorMessage(error));
     }
@@ -140,12 +162,21 @@ export async function exportNodes(input: ExportNodesInput = {}): Promise<Record<
   const skipped: SkippedNode[] = [];
   let totalBase64Bytes = 0;
   let aborted: string | undefined;
+  let budgetReached = false;
+  let consecutiveTimeouts = 0;
+  const startedAt = Date.now();
 
   let capabilityChecked = false;
 
   for (const id of nodeIds) {
     if (aborted) {
-      skipped.push({ id, reason: 'not attempted: export aborted early' });
+      skipped.push({ id, reason: 'not attempted: export stopped early — see the aborted reason' });
+      continue;
+    }
+
+    if (Date.now() - startedAt >= COMMAND_BUDGET_MS) {
+      budgetReached = true;
+      skipped.push({ id, reason: `not attempted: ${COMMAND_BUDGET_MS}ms command budget reached — re-run for the rest` });
       continue;
     }
 
@@ -168,7 +199,7 @@ export async function exportNodes(input: ExportNodesInput = {}): Promise<Record<
     }
 
     try {
-      const bytes = await renderNode(node, scale);
+      const bytes = await renderNode(node, scale, PER_NODE_BUDGET_MS);
       if (bytes.byteLength > MAX_IMAGE_BYTES) {
         skipped.push({
           id,
@@ -183,6 +214,7 @@ export async function exportNodes(input: ExportNodesInput = {}): Promise<Record<
         continue;
       }
       totalBase64Bytes += bytesBase64.length;
+      consecutiveTimeouts = 0;
       exported.push({
         id,
         name: node.name,
@@ -191,7 +223,16 @@ export async function exportNodes(input: ExportNodesInput = {}): Promise<Record<
         byteLength: bytes.byteLength
       });
     } catch (error) {
-      skipped.push({ id, reason: errorMessage(error) });
+      const message = errorMessage(error);
+      skipped.push({ id, reason: message });
+      if (!message.includes('timed out')) {
+        consecutiveTimeouts = 0;
+      } else {
+        consecutiveTimeouts += 1;
+        if (consecutiveTimeouts >= CONSECUTIVE_TIMEOUT_LIMIT) {
+          aborted = `${CONSECUTIVE_TIMEOUT_LIMIT} exports timed out in a row — the Pixso renderer saturates after a long burst; wait about 30s, then re-run the skipped ids`;
+        }
+      }
     }
   }
 
@@ -202,6 +243,7 @@ export async function exportNodes(input: ExportNodesInput = {}): Promise<Record<
     exported,
     skipped,
     totalBase64Bytes,
+    timing: { budgetMs: COMMAND_BUDGET_MS, elapsedMs: Date.now() - startedAt, budgetReached },
     ...(aborted ? { aborted } : {})
   };
 }

@@ -161,6 +161,13 @@ async function runPlugin(
   const showUiCalls: Array<{ html: string; options?: Record<string, unknown> }> = [];
   const eventHandlers: Array<{ event: string; handler: () => void }> = [];
   const pollCallbacks: Array<() => void> = [];
+  const pendingTimers = new Map<number, () => void>();
+  let timerId = 0;
+  const fireTimers = () => {
+    const due = [...pendingTimers.entries()].sort((a, b) => a[0] - b[0]);
+    pendingTimers.clear();
+    for (const [, fn] of due) fn();
+  };
   const context = vm.createContext({
     __html__: '<html>ui</html>',
     // The sandbox has no host timers; capturing the poll callback lets a test
@@ -170,6 +177,14 @@ async function runPlugin(
       return pollCallbacks.length;
     },
     clearInterval() {},
+    setTimeout(fn: () => void) {
+      timerId += 1;
+      pendingTimers.set(timerId, fn);
+      return timerId;
+    },
+    clearTimeout(handle: number) {
+      pendingTimers.delete(handle as number);
+    },
     pixso: {
       showUI(html: string, options?: Record<string, unknown>) {
         showUiCalls.push({ html, options });
@@ -239,7 +254,7 @@ async function runPlugin(
     return posted.find(message => message.response?.id === id)?.response;
   };
 
-  return { context, posted, showUiCalls, dispatchCommand, storage, exportLog, eventHandlers, pollCallbacks };
+  return { context, posted, showUiCalls, dispatchCommand, storage, exportLog, eventHandlers, pollCallbacks, fireTimers };
 }
 
 describe('pixso plugin skeleton', () => {
@@ -473,6 +488,45 @@ describe('decorative node export', () => {
     const reason = response?.result.skipped[0]?.reason as string;
     expect(reason).toContain('constraint-shape-failed');
     expect(reason).toContain('scale-shape-failed');
+  });
+
+  it('skips a hung exportAsync instead of losing the whole batch', async () => {
+    const fixture = buildDecorativeFixture();
+    const { dispatchCommand, fireTimers } = await runPlugin(fixture, undefined, { withExport: true });
+    nodeById(fixture, 'v1').exportAsync = () => new Promise(() => {});
+
+    const pending = dispatchCommand('export-8', 'export_nodes_png', { nodeIds: ['v1', 'e1'], scale: 1 });
+    for (let tick = 0; tick < 4; tick += 1) {
+      await new Promise(resolve => setImmediate(resolve));
+      fireTimers();
+    }
+    const response = await pending;
+
+    expect(response?.ok).toBe(true);
+    expect(response?.result.exported.map((entry: any) => entry.id)).toEqual(['e1']);
+    expect(response?.result.skipped[0]?.reason).toContain('exportAsync timed out');
+    expect(response?.result.timing).toMatchObject({ budgetReached: false });
+  });
+
+  it('stops the batch after repeated timeouts instead of burning every node', async () => {
+    const fixture = buildDecorativeFixture();
+    const { dispatchCommand, fireTimers } = await runPlugin(fixture, undefined, { withExport: true });
+    for (const id of ['v1', 't1', 'g1']) nodeById(fixture, id).exportAsync = () => new Promise(() => {});
+
+    const pending = dispatchCommand('export-9', 'export_nodes_png', { nodeIds: ['v1', 't1', 'g1', 'e1'], scale: 1 });
+    for (let tick = 0; tick < 12; tick += 1) {
+      await new Promise(resolve => setImmediate(resolve));
+      fireTimers();
+    }
+    const response = await pending;
+
+    expect(response?.ok).toBe(true);
+    expect(response?.result.exported).toEqual([]);
+    const skipped = response?.result.skipped;
+    expect(skipped.map((entry: any) => entry.id)).toEqual(['v1', 't1', 'g1', 'e1']);
+    expect(skipped.slice(0, 3).every((entry: any) => entry.reason.includes('exportAsync timed out'))).toBe(true);
+    expect(skipped[3].reason).toContain('not attempted');
+    expect(response?.result.aborted).toContain('3 exports timed out in a row');
   });
 
   it('normalizes plain number arrays into bytes', async () => {
