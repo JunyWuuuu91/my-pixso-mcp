@@ -123,6 +123,25 @@ function buildDecorativeFixture() {
   };
 }
 
+function buildBulkFixture(count = 100) {
+  const screen: any = {
+    id: 'f-bulk',
+    name: '批量画板',
+    type: 'FRAME',
+    width: 100,
+    height: 100,
+    children: Array.from({ length: count }, (_, index) => ({
+      id: `bulk-${index}`,
+      name: `bulk ${index}`,
+      type: 'RECTANGLE',
+      width: 10,
+      height: 10
+    }))
+  };
+  const page: any = { id: 'p-bulk', name: '批量页', type: 'PAGE', width: 0, height: 0, children: [screen] };
+  return { root: { id: 'doc-bulk', name: '批量文件', children: [page] }, currentPage: page };
+}
+
 function buildSelectionFixture(selectionNodes?: unknown[]) {
   const page: any = { id: 'p1', name: '首页', type: 'PAGE', width: 0, height: 0, children: [] };
   const screen: any = { id: 'f1', name: '登录页', type: 'FRAME', width: 375, height: 812, children: [], parent: page };
@@ -163,6 +182,10 @@ async function runPlugin(
   const pollCallbacks: Array<() => void> = [];
   const pendingTimers = new Map<number, () => void>();
   let timerId = 0;
+  let clockNow = 1_700_000_000_000;
+  const advanceClock = (ms: number) => {
+    clockNow += ms;
+  };
   const fireTimers = () => {
     const due = [...pendingTimers.entries()].sort((a, b) => a[0] - b[0]);
     pendingTimers.clear();
@@ -170,6 +193,15 @@ async function runPlugin(
   };
   const context = vm.createContext({
     __html__: '<html>ui</html>',
+    Date: class SandboxDate {
+      static now() {
+        return clockNow;
+      }
+      value = clockNow;
+      toISOString() {
+        return new Date(this.value).toISOString();
+      }
+    },
     // The sandbox has no host timers; capturing the poll callback lets a test
     // fire ticks deterministically instead of waiting on real time.
     setInterval(fn: () => void) {
@@ -254,7 +286,7 @@ async function runPlugin(
     return posted.find(message => message.response?.id === id)?.response;
   };
 
-  return { context, posted, showUiCalls, dispatchCommand, storage, exportLog, eventHandlers, pollCallbacks, fireTimers };
+  return { context, posted, showUiCalls, dispatchCommand, storage, exportLog, eventHandlers, pollCallbacks, fireTimers, advanceClock };
 }
 
 describe('pixso plugin skeleton', () => {
@@ -527,6 +559,67 @@ describe('decorative node export', () => {
     expect(skipped.slice(0, 3).every((entry: any) => entry.reason.includes('exportAsync timed out'))).toBe(true);
     expect(skipped[3].reason).toContain('not attempted');
     expect(response?.result.aborted).toContain('3 exports timed out in a row');
+  });
+
+  it('refuses ids once the export count reaches the saturation cliff', async () => {
+    const { dispatchCommand, exportLog } = await runPlugin(buildBulkFixture(), undefined, { withExport: true });
+    const range = (start: number, end: number) => Array.from({ length: end - start }, (_, i) => `bulk-${start + i}`);
+
+    const first = await dispatchCommand('export-s1', 'export_nodes_png', { nodeIds: range(0, 40), scale: 1 });
+    expect(first?.result.exported).toHaveLength(40);
+    expect(first?.result.rendererGuard).toEqual({ exportsSinceRecovery: 40, threshold: 90, earlyStopped: 0 });
+
+    const second = await dispatchCommand('export-s2', 'export_nodes_png', { nodeIds: range(40, 80), scale: 1 });
+    expect(second?.result.rendererGuard).toEqual({ exportsSinceRecovery: 80, threshold: 90, earlyStopped: 0 });
+
+    const third = await dispatchCommand('export-s3', 'export_nodes_png', { nodeIds: range(80, 100), scale: 1 });
+    expect(third?.result.exported).toHaveLength(10);
+    const skipped = third?.result.skipped ?? [];
+    expect(skipped).toHaveLength(10);
+    expect(skipped.every((entry: any) => entry.reason.includes('renderer near saturation'))).toBe(true);
+    expect(third?.result.rendererGuard).toEqual({ exportsSinceRecovery: 90, threshold: 90, earlyStopped: 10 });
+    expect(exportLog).toHaveLength(90);
+  });
+
+  it('resets the saturation counter only after the full recovery gap', async () => {
+    const { dispatchCommand, advanceClock } = await runPlugin(buildDecorativeFixture(), undefined, { withExport: true });
+
+    const before = await dispatchCommand('export-r1', 'export_nodes_png', { nodeIds: ['v1', 'e1'], scale: 1 });
+    expect(before?.result.rendererGuard).toEqual({ exportsSinceRecovery: 2, threshold: 90, earlyStopped: 0 });
+
+    advanceClock(29_999);
+    const underGap = await dispatchCommand('export-r2', 'export_nodes_png', { nodeIds: ['v1', 'e1'], scale: 1 });
+    expect(underGap?.result.rendererGuard).toEqual({ exportsSinceRecovery: 4, threshold: 90, earlyStopped: 0 });
+
+    advanceClock(30_000);
+    const afterGap = await dispatchCommand('export-r3', 'export_nodes_png', { nodeIds: ['v1', 'e1'], scale: 1 });
+    expect(afterGap?.result.rendererGuard).toEqual({ exportsSinceRecovery: 2, threshold: 90, earlyStopped: 0 });
+  });
+
+  it('pins the counter when the breaker trips so the next command refuses immediately', async () => {
+    const fixture = buildDecorativeFixture();
+    const { dispatchCommand, exportLog, fireTimers, advanceClock } = await runPlugin(fixture, undefined, {
+      withExport: true
+    });
+    for (const id of ['v1', 't1', 'g1']) nodeById(fixture, id).exportAsync = () => new Promise(() => {});
+
+    const pending = dispatchCommand('export-b1', 'export_nodes_png', { nodeIds: ['v1', 't1', 'g1'], scale: 1 });
+    for (let tick = 0; tick < 12; tick += 1) {
+      await new Promise(resolve => setImmediate(resolve));
+      fireTimers();
+    }
+    const tripped = await pending;
+    expect(tripped?.result.aborted).toContain('3 exports timed out in a row');
+
+    const immediate = await dispatchCommand('export-b2', 'export_nodes_png', { nodeIds: ['e1'], scale: 1 });
+    expect(immediate?.result.exported).toEqual([]);
+    expect(immediate?.result.skipped[0]?.reason).toContain('renderer near saturation');
+    expect(exportLog).toHaveLength(0);
+
+    advanceClock(30_000);
+    const recovered = await dispatchCommand('export-b3', 'export_nodes_png', { nodeIds: ['e1'], scale: 1 });
+    expect(recovered?.result.exported.map((entry: any) => entry.id)).toEqual(['e1']);
+    expect(exportLog).toHaveLength(1);
   });
 
   it('normalizes plain number arrays into bytes', async () => {

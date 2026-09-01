@@ -51,6 +51,7 @@ interface PluginExportResult {
   totalBase64Bytes?: number;
   aborted?: string;
   timing?: { budgetMs: number; elapsedMs: number; budgetReached: boolean };
+  rendererGuard?: { exportsSinceRecovery: number; threshold: number; earlyStopped: number };
 }
 
 function sanitizeSegment(value: string): string {
@@ -73,7 +74,7 @@ export function registerExportNodesPngTool(server: McpServer, sessions: SessionR
     {
       title: 'Export Pixso nodes as PNG files',
       description:
-        'Render the given nodes at the chosen scale via the connected Pixso plugin and write one PNG per node to a local directory. Use find_decorative_nodes first, show its groups and scale proposal to the user, then call this tool with the node ids from the groups the user picked and the scale the user picked. At most 40 ids per call. Pixso renders one node at a time and its renderer saturates after a long burst: saturated nodes come back as skipped and the batch stops early, so wait ~30s and re-run just those ids. Returns the output directory and the written file paths; image bytes are never returned inline.',
+        'Render the given nodes at the chosen scale via the connected Pixso plugin and write one PNG per node to a local directory. Use find_decorative_nodes first, show its groups and scale proposal to the user, then call this tool with the node ids from the groups the user picked and the scale the user picked. At most 40 ids per call. Pixso renders one node at a time and its renderer saturates after a long burst (~100 exports): the plugin counts exports and refuses ids just before that cliff (rendererGuard in the result, skipped with a reason), so wait ~30s and re-run just the skipped ids. Returns the output directory and the written file paths; image bytes are never returned inline.',
       inputSchema: exportNodesPngSchema,
       annotations: { readOnlyHint: false, openWorldHint: false }
     },
@@ -98,6 +99,7 @@ export function registerExportNodesPngTool(server: McpServer, sessions: SessionR
           scale,
           skipped: result.skipped ?? [],
           ...(result.timing ? { timing: result.timing } : {}),
+          ...(result.rendererGuard ? { rendererGuard: result.rendererGuard } : {}),
           ...(result.aborted ? { aborted: result.aborted } : {})
         });
       }
@@ -140,6 +142,7 @@ export function registerExportNodesPngTool(server: McpServer, sessions: SessionR
           written,
           skipped,
           ...(result.timing ? { timing: result.timing } : {}),
+          ...(result.rendererGuard ? { rendererGuard: result.rendererGuard } : {}),
           ...(result.aborted ? { aborted: result.aborted } : {})
         });
       } catch (error) {

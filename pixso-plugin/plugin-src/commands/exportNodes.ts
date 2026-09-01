@@ -27,6 +27,14 @@ const BASE64_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz012
 const PER_NODE_BUDGET_MS = 8_000;
 const COMMAND_BUDGET_MS = 45_000;
 const CONSECUTIVE_TIMEOUT_LIMIT = 3;
+// Measured on Pixso 2.3.1: the renderer stops answering exportAsync after ~100
+// consecutive renders and fully recovers after ~25s idle. Refuse just before
+// the cliff instead of burning three 8s deadlines per batch.
+const SATURATION_THRESHOLD = 90;
+const RECOVERY_GAP_MS = 30_000;
+
+let exportsSinceRecovery = 0;
+let lastExportAt = 0;
 
 function clamp(value: number, min: number, max: number): number {
   if (!Number.isFinite(value)) return min;
@@ -164,6 +172,7 @@ export async function exportNodes(input: ExportNodesInput = {}): Promise<Record<
   let aborted: string | undefined;
   let budgetReached = false;
   let consecutiveTimeouts = 0;
+  let earlyStopped = 0;
   const startedAt = Date.now();
 
   let capabilityChecked = false;
@@ -177,6 +186,16 @@ export async function exportNodes(input: ExportNodesInput = {}): Promise<Record<
     if (Date.now() - startedAt >= COMMAND_BUDGET_MS) {
       budgetReached = true;
       skipped.push({ id, reason: `not attempted: ${COMMAND_BUDGET_MS}ms command budget reached — re-run for the rest` });
+      continue;
+    }
+
+    if (lastExportAt > 0 && Date.now() - lastExportAt >= RECOVERY_GAP_MS) exportsSinceRecovery = 0;
+    if (exportsSinceRecovery >= SATURATION_THRESHOLD) {
+      earlyStopped += 1;
+      skipped.push({
+        id,
+        reason: `not attempted: renderer near saturation (${exportsSinceRecovery} exports since the last cooldown, measured cliff ~100) — wait about 30s and re-run these ids`
+      });
       continue;
     }
 
@@ -215,6 +234,8 @@ export async function exportNodes(input: ExportNodesInput = {}): Promise<Record<
       }
       totalBase64Bytes += bytesBase64.length;
       consecutiveTimeouts = 0;
+      exportsSinceRecovery += 1;
+      lastExportAt = Date.now();
       exported.push({
         id,
         name: node.name,
@@ -231,6 +252,8 @@ export async function exportNodes(input: ExportNodesInput = {}): Promise<Record<
         consecutiveTimeouts += 1;
         if (consecutiveTimeouts >= CONSECUTIVE_TIMEOUT_LIMIT) {
           aborted = `${CONSECUTIVE_TIMEOUT_LIMIT} exports timed out in a row — the Pixso renderer saturates after a long burst; wait about 30s, then re-run the skipped ids`;
+          exportsSinceRecovery = SATURATION_THRESHOLD;
+          lastExportAt = Date.now();
         }
       }
     }
@@ -244,6 +267,7 @@ export async function exportNodes(input: ExportNodesInput = {}): Promise<Record<
     skipped,
     totalBase64Bytes,
     timing: { budgetMs: COMMAND_BUDGET_MS, elapsedMs: Date.now() - startedAt, budgetReached },
+    rendererGuard: { exportsSinceRecovery, threshold: SATURATION_THRESHOLD, earlyStopped },
     ...(aborted ? { aborted } : {})
   };
 }
