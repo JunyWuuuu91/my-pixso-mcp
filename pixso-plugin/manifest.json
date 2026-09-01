@@ -1,6 +1,6 @@
 {
-  "name": "Pixso Advanced MCP",
-  "id": "pixso-advanced-mcp-local",
+  "name": "My Pixso MCP",
+  "id": "my-pixso-mcp-local",
   "api": "1.0.0",
   "main": "main.js",
   "ui": "ui.html",

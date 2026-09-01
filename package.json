@@ -1,43 +1,33 @@
 {
-  "name": "pixso-advanced-mcp",
-  "version": "0.4.0",
-  "description": "Local MCP bridge and read-only plugin for scanning Pixso layouts with AI agents.",
+  "name": "my-pixso-mcp",
+  "version": "0.1.0",
+  "description": "Local MCP bridge and Pixso plugin for reading design data with AI agents.",
   "type": "module",
-  "author": "pishikin",
+  "author": "JunyWuuuu91",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/pishikin/pixso-advanced-mcp.git"
+    "url": "git+https://github.com/JunyWuuuu91/my-pixso-mcp.git"
   },
-  "homepage": "https://github.com/pishikin/pixso-advanced-mcp#readme",
-  "bugs": {
-    "url": "https://github.com/pishikin/pixso-advanced-mcp/issues"
-  },
+  "homepage": "https://github.com/JunyWuuuu91/my-pixso-mcp#readme",
   "bin": {
-    "pixso-advanced-mcp": "dist/index.js"
+    "my-pixso-mcp": "dist/index.js"
   },
   "files": [
     "dist",
     "pixso-plugin",
-    "scripts",
     "docs",
-    "examples",
     "README.md",
-    "LICENSE",
-    "RELEASE_NOTES.md"
+    "LICENSE"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.json && npm run plugin:build",
+    "plugin:build": "esbuild pixso-plugin/plugin-src/index.ts --bundle --format=iife --target=es2017 --outfile=pixso-plugin/main.js",
     "dev": "tsx src/index.ts serve --transport http",
     "dev:stdio": "tsx src/index.ts serve --transport stdio",
     "start": "node dist/index.js serve --transport http",
-    "start:http": "node dist/index.js serve --transport http",
     "start:stdio": "node dist/index.js serve --transport stdio",
-    "doctor": "node dist/index.js doctor",
-    "quickstart": "node dist/index.js quickstart",
-    "metrics:pixso": "node scripts/pixso-quality-metrics.mjs",
-    "print-codex-config": "node dist/index.js print-codex-config --transport http",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "vitest run",
+    "test": "vitest run --passWithNoTests",
     "check": "npm run typecheck && npm test"
   },
   "engines": {
@@ -51,6 +41,7 @@
   "devDependencies": {
     "@types/node": "^24.10.1",
     "@types/ws": "^8.18.1",
+    "esbuild": "^0.25.0",
     "tsx": "^4.21.0",
     "typescript": "^5.9.3",
     "vitest": "^4.0.14"
@@ -60,9 +51,6 @@
     "mcp",
     "mcp-server",
     "design-to-code",
-    "ui-implementation",
-    "frontend",
-    "ai-agents",
     "plugin"
   ],
   "license": "MIT"
