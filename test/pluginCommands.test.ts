@@ -8,6 +8,8 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 interface UiMessage {
   type: string;
+  key?: string;
+  value?: unknown;
   response?: { id: string; ok: boolean; result?: any; error?: string };
 }
 
@@ -31,7 +33,7 @@ function buildDocumentFixture() {
   };
 }
 
-async function runPlugin(fixture = buildDocumentFixture()) {
+async function runPlugin(fixture = buildDocumentFixture(), storage = new Map<string, unknown>()) {
   const result = await build({
     entryPoints: [path.join(root, 'pixso-plugin/plugin-src/index.ts')],
     bundle: true,
@@ -57,7 +59,21 @@ async function runPlugin(fixture = buildDocumentFixture()) {
         }
       },
       root: fixture.root,
-      currentPage: fixture.currentPage
+      currentPage: fixture.currentPage,
+      clientStorage: {
+        async getAsync(key: string) {
+          return storage.get(key);
+        },
+        async setAsync(key: string, value: unknown) {
+          storage.set(key, value);
+        },
+        async deleteAsync(key: string) {
+          storage.delete(key);
+        },
+        async keysAsync() {
+          return [...storage.keys()];
+        }
+      }
     }
   });
   vm.runInContext(code, context);
@@ -68,14 +84,47 @@ async function runPlugin(fixture = buildDocumentFixture()) {
     return posted.find(message => message.response?.id === id)?.response;
   };
 
-  return { context, posted, showUiCalls, dispatchCommand };
+  return { context, posted, showUiCalls, dispatchCommand, storage };
 }
 
 describe('pixso plugin skeleton', () => {
   it('shows the UI on load', async () => {
     const { showUiCalls } = await runPlugin();
     expect(showUiCalls).toHaveLength(1);
-    expect(showUiCalls[0]?.options?.title).toBe('My Pixso MCP');
+    expect(showUiCalls[0]?.options?.title).toBe('Pixso MCP 本地桥');
+  });
+
+  it('reports the runtime environment to the UI panel', async () => {
+    const { context, posted } = await runPlugin();
+    const handler = (context.pixso as any).ui.onmessage;
+    await handler({ type: 'plugin-env-request' });
+    const envMessage = posted.find(message => message.type === 'plugin-env');
+    expect(envMessage).toBeDefined();
+    expect((envMessage as any).env).toMatchObject({
+      documentName: '示例文件',
+      pageCount: 2,
+      currentPageName: '首页'
+    });
+  });
+
+  it('proxies only its own settings keys to clientStorage', async () => {
+    const storage = new Map<string, unknown>([['bridgePort', '3700'], ['other', 'keep-me']]);
+    const { context, posted } = await runPlugin(undefined, storage);
+    const handler = (context.pixso as any).ui.onmessage;
+
+    await handler({ type: 'plugin-storage-get', key: 'bridgePort' });
+    expect(posted.find(message => message.type === 'plugin-storage')).toMatchObject({
+      key: 'bridgePort',
+      value: '3700'
+    });
+
+    await handler({ type: 'plugin-storage-get', key: 'other' });
+    await handler({ type: 'plugin-storage-set', key: 'other', value: 'overwritten' });
+    expect(posted.filter(message => message.type === 'plugin-storage')).toHaveLength(1);
+    expect(storage.get('other')).toBe('keep-me');
+
+    await handler({ type: 'plugin-storage-set', key: 'bridgePort', value: '3701' });
+    expect(storage.get('bridgePort')).toBe('3701');
   });
 
   it('answers health with plugin and document info', async () => {

@@ -14,10 +14,12 @@ declare global {
     type: string;
     width: number;
     height: number;
+    children?: readonly SceneNodeLike[];
   }
 
   interface PageNodeLike extends SceneNodeLike {
     children: readonly SceneNodeLike[];
+    selection?: readonly SceneNodeLike[];
   }
 
   interface DocumentNodeLike {
@@ -36,11 +38,29 @@ declare global {
     minHeight?: number;
   }
 
-  const pixso: {
+  interface PluginClientStorageApi {
+    getAsync(key: string): Promise<unknown>;
+    setAsync(key: string, value: unknown): Promise<void>;
+    deleteAsync(key: string): Promise<void>;
+    keysAsync(): Promise<string[]>;
+  }
+
+  interface PixsoApi {
     showUI(html: string, options?: PixsoShowUiOptions): void;
     notify(message: string): void;
     ui: PluginUiApi;
+    clientStorage: PluginClientStorageApi;
     root: DocumentNodeLike;
     currentPage: PageNodeLike;
-  };
+    apiVersion?: string;
+    editorType?: string;
+    command?: string;
+    origin?: string;
+    fileKey?: string;
+    pluginId?: string;
+    currentUser?: unknown;
+    [key: string]: unknown;
+  }
+
+  const pixso: PixsoApi;
 }

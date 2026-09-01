@@ -47,7 +47,7 @@ npm run build     # tsc → dist/，esbuild → pixso-plugin/main.js
 npm start         # MCP 3678 / 插件 WS 3679
 ```
 
-在 Pixso 里：打开设计稿 → 插件 → 开发插件 → 上传 `pixso-plugin/manifest.json` → 运行。插件窗口显示已连接后：
+在 Pixso 里：打开设计稿 → 插件 → 开发插件 → 上传 `pixso-plugin/manifest.json` → 运行。插件窗口显示已连接后（端口在首次连接成功后会被 `clientStorage` 记住，下次打开自动填好）：
 
 ```bash
 curl -s http://127.0.0.1:3678/health | head -c 200

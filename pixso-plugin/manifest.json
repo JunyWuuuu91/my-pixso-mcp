@@ -1,5 +1,5 @@
 {
-  "name": "My Pixso MCP",
+  "name": "Pixso MCP 本地桥",
   "id": "my-pixso-mcp-local",
   "api": "1.0.0",
   "main": "main.js",
@@ -7,7 +7,7 @@
   "editorType": ["pixso", "preview", "dev", "singleFrame"],
   "menu": [
     {
-      "name": "Connect to Local MCP",
+      "name": "连接本地 MCP",
       "command": "connect"
     }
   ]
