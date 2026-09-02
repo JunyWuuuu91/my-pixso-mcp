@@ -10,6 +10,24 @@ Pixso 插件（main.js 沙箱 + ui.html iframe）
 Qoder / pi / Codex
 ```
 
+## ELI5：它是做什么的
+
+想象你有一盒乐高积木，这就是 **Pixso 里的设计稿**。你想让门外的小伙伴（AI 助手）帮你数数积木、找到红色的那块，或者把小人拍照带走。可是乐高盒锁在 Pixso 房间里，小伙伴进不来。
+
+My Pixso MCP 就像一根长长的吸管：
+
+- 一头插进 Pixso 房间里的乐高盒（**插件**）。
+- 另一头伸到你家门口的小伙伴嘴里（**MCP 客户端**，比如 Qoder / pi / Codex）。
+
+小伙伴不用推门进去，只要对着吸管说“帮我看看第 3 页有哪些小人”，吸管就会把看到的东西传出来。
+
+**为什么不用 Pixso 自带的吸管？** 因为自带吸管要收“全功能/研发席位”门票，**团队共享稿不掏钱就用不了**。我们自建的这根吸管不要门票，所以在团队空间里也能用。
+
+吸管两头地址：
+
+- 给 AI 的一头：`http://127.0.0.1:3678/mcp`
+- 插进 Pixso 的一头：`ws://127.0.0.1:3679/ws`
+
 ## 为什么要自建
 
 Pixso 桌面客户端（≥ 2.2.0）自带官方 MCP（`127.0.0.1:3667`，实测 37 工具），但 **`tools/call` 按席位校验**：企业/团队空间里非全功能/研发席位一律返回
@@ -61,7 +79,7 @@ CLI 选项：`--transport http|stdio`、`--host`、`--mcp-port`、`--ws-port`、
 
 | 客户端 | 配置 |
 |---|---|
-| Qoder | `~/.qoder/mcp.json` → `"pixso": { "type": "http", "url": "http://127.0.0.1:3678/mcp" }` |
+| Qoder | 设置 → 添加自定义 MCP → URL 填 `http://127.0.0.1:3678/mcp`（保存到 `~/.qoder/settings.json`） |
 | pi | `~/.pi/agent/mcp.json` 或项目 `.mcp.json`，同上（需 `pi-mcp-adapter` ≥ 2.x） |
 | Codex | `codex mcp add pixso --url http://127.0.0.1:3678/mcp` |
 
