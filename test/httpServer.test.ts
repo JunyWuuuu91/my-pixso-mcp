@@ -76,6 +76,20 @@ const EXPORT_FIXTURE = {
   totalBase64Bytes: PNG_BASE64.length
 };
 
+const SVG_TEXT = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 2l3 7h7z"/></svg>';
+const SVG_BYTES = Buffer.from(SVG_TEXT, 'utf8');
+const SVG_BASE64 = SVG_BYTES.toString('base64');
+
+const SMART_EXPORT_FIXTURE = {
+  file: { name: '集成测试文件' },
+  page: { id: 'p1', name: '首页' },
+  scale: 2,
+  prefer: 'auto',
+  exported: [{ id: 'v1', name: 'icon-star', fileNameSafe: 'icon-star', bytesBase64: SVG_BASE64, byteLength: SVG_BYTES.length, format: 'svg' }],
+  skipped: [],
+  totalBase64Bytes: SVG_BASE64.length
+};
+
 let bridge: BridgeServer;
 let http: HttpServerHandle;
 let pluginSocket: WebSocket;
@@ -129,6 +143,8 @@ beforeAll(async () => {
       pluginSocket.send(JSON.stringify({ id: message.id, ok: true, result: SELECTION_FIXTURE }));
     } else if (message.command === 'export_nodes_png') {
       pluginSocket.send(JSON.stringify({ id: message.id, ok: true, result: EXPORT_FIXTURE }));
+    } else if (message.command === 'export_nodes_smart') {
+      pluginSocket.send(JSON.stringify({ id: message.id, ok: true, result: SMART_EXPORT_FIXTURE }));
     } else {
       pluginSocket.send(JSON.stringify({ id: message.id, ok: false, error: `unknown command ${message.command}` }));
     }
@@ -173,7 +189,7 @@ describe('HTTP MCP server + WS bridge', () => {
 
     const list = await mcpRequest({ jsonrpc: '2.0', id: 2, method: 'tools/list' }, sessionId ?? undefined);
     const toolNames = list.body.result.tools.map((tool: any) => tool.name).sort();
-    expect(toolNames).toEqual(['export_nodes_png', 'find_decorative_nodes', 'get_document', 'get_selection', 'health', 'probe_api']);
+    expect(toolNames).toEqual(['export_nodes_png', 'export_nodes_smart', 'find_decorative_nodes', 'get_document', 'get_selection', 'health', 'probe_api']);
   });
 
   it('calls get_document end to end through the fake plugin', async () => {
@@ -322,5 +338,39 @@ describe('HTTP MCP server + WS bridge', () => {
     );
     const againPayload = JSON.parse(again.body.result.content[0].text);
     expect(path.basename(againPayload.written[0].path)).toBe('icon-star-v1@2x-2.png');
+  });
+
+  it('proxies export_nodes_smart and writes an svg asset', async () => {
+    const init = await mcpRequest({
+      jsonrpc: '2.0',
+      id: 1,
+      method: 'initialize',
+      params: { protocolVersion: '2025-03-26', capabilities: {}, clientInfo: { name: 'integration-test', version: '1.0' } }
+    });
+    const sessionId = init.headers.get('mcp-session-id') ?? undefined;
+    await mcpRequest({ jsonrpc: '2.0', method: 'notifications/initialized' }, sessionId);
+
+    const outputDir = mkdtempSync(path.join(os.tmpdir(), 'pixso-smart-'));
+    exportDirs.push(outputDir);
+
+    const call = await mcpRequest(
+      {
+        jsonrpc: '2.0',
+        id: 8,
+        method: 'tools/call',
+        params: { name: 'export_nodes_smart', arguments: { nodeIds: ['v1'], prefer: 'auto', outputDir } }
+      },
+      sessionId
+    );
+    expect(call.status).toBe(200);
+    expect(call.body.result.isError).toBeFalsy();
+    const payload = JSON.parse(call.body.result.content[0].text);
+    expect(payload.ok).toBe(true);
+    expect(payload.svgCount).toBe(1);
+    expect(payload.pngCount).toBe(0);
+    const written = payload.written[0];
+    expect(written.format).toBe('svg');
+    expect(path.basename(written.path)).toBe('icon-star-v1.svg');
+    expect(readFileSync(written.path).toString('utf8')).toBe(SVG_TEXT);
   });
 });

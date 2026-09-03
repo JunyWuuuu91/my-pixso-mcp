@@ -7,6 +7,7 @@ import { registerProbeApiTool } from '../tools/probeApi.js';
 import { registerFindDecorativeNodesTool } from '../tools/findDecorativeNodes.js';
 import { registerGetSelectionTool } from '../tools/getSelection.js';
 import { registerExportNodesPngTool } from '../tools/exportNodesPng.js';
+import { registerExportNodesSmartTool } from '../tools/exportNodesSmart.js';
 
 export function createPixsoMcpServer(sessions: SessionRegistry, config: ServerConfig, startedAt = Date.now()): McpServer {
   const server = new McpServer({
@@ -20,5 +21,6 @@ export function createPixsoMcpServer(sessions: SessionRegistry, config: ServerCo
   registerFindDecorativeNodesTool(server, sessions);
   registerGetSelectionTool(server, sessions);
   registerExportNodesPngTool(server, sessions);
+  registerExportNodesSmartTool(server, sessions);
   return server;
 }

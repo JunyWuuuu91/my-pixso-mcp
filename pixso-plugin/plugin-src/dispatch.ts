@@ -13,6 +13,10 @@ const COMMANDS: Record<string, CommandHandler> = {
   probe_api: input => probeApi(input as ProbeApiInput),
   find_decorative_nodes: input => findDecorativeNodes(input as FindDecorativeNodesInput),
   export_nodes_png: input => exportNodes(input as ExportNodesInput),
+  export_nodes_smart: input => {
+    const i = input as ExportNodesInput;
+    return exportNodes({ ...i, prefer: i.prefer ?? 'auto' });
+  },
   get_selection: input => getSelection(input as GetSelectionInput)
 };
 

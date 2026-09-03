@@ -1,9 +1,14 @@
 import { resolvePage } from './resolvePage.js';
 
+export type ExportFormat = 'svg' | 'png';
+export type ExportPrefer = 'auto' | 'svg' | 'png';
+
 export interface ExportNodesInput {
   nodeIds?: string[];
   scale?: number;
   page?: string;
+  /** 'auto' = try SVG then fall back to PNG; 'svg'/'png' force one format. Defaults to 'png'. */
+  prefer?: ExportPrefer;
 }
 
 interface ExportedNode {
@@ -12,6 +17,9 @@ interface ExportedNode {
   fileNameSafe: string;
   bytesBase64: string;
   byteLength: number;
+  format: ExportFormat;
+  /** why the chosen format differs from the requested preference (e.g. png fallback reason) */
+  formatNote?: string;
 }
 
 interface SkippedNode {
@@ -136,18 +144,76 @@ function withDeadline<T>(promise: Promise<T>, ms: number, label: string): Promis
   });
 }
 
-async function renderNode(node: SceneNodeLike, scale: number, budgetMs: number): Promise<Uint8Array> {
+function looksLikeSvg(bytes: Uint8Array): boolean {
+  const n = Math.min(bytes.length, 512);
+  let head = '';
+  for (let i = 0; i < n; i += 1) head += String.fromCharCode(bytes[i] ?? 0);
+  return /<svg[\s>]/i.test(head) || /<\?xml/i.test(head);
+}
+
+// Scan a bounded prefix of the svg text for a pattern (avoid decoding huge blobs fully).
+function svgMatches(bytes: Uint8Array, re: RegExp, cap = 262_144): boolean {
+  const n = Math.min(bytes.length, cap);
+  let text = '';
+  for (let i = 0; i < n; i += 1) text += String.fromCharCode(bytes[i] ?? 0);
+  return re.test(text);
+}
+
+// Raster-heavy SVG (embedded <image>) above this size is usually better as PNG.
+const SVG_RASTER_FALLBACK_BYTES = 262_144;
+
+interface RenderResult {
+  bytes: Uint8Array;
+  format: ExportFormat;
+  formatNote?: string;
+}
+
+async function renderNode(
+  node: SceneNodeLike,
+  scale: number,
+  budgetMs: number,
+  prefer: ExportPrefer
+): Promise<RenderResult> {
   const exportAsync = node.exportAsync;
   if (typeof exportAsync !== 'function') {
     throw new Error('exportAsync missing on node');
   }
-  const shapes = [{ format: 'PNG', constraint: { type: 'SCALE', value: scale } }, { format: 'PNG', scale }];
-  const failures: string[] = [];
   const startedAt = Date.now();
+  const failures: string[] = [];
+
+  // 1) Vector attempt (SVG) when allowed.
+  if (prefer === 'svg' || prefer === 'auto') {
+    const remainingMs = Math.max(1, budgetMs - (Date.now() - startedAt));
+    try {
+      const bytes = toBytes(await withDeadline(exportAsync.call(node, { format: 'SVG' }), remainingMs, 'exportAsync(SVG)'));
+      if (bytes.byteLength > 0 && looksLikeSvg(bytes)) {
+        if (prefer === 'svg') return { bytes, format: 'svg' };
+        // auto: fall back to PNG for cases that render inconsistently or bloat as SVG
+        if (svgMatches(bytes, /<image[\s>]/i) && bytes.byteLength > SVG_RASTER_FALLBACK_BYTES) {
+          failures.push('svg is raster-heavy (embedded <image>), prefer png');
+        } else if (svgMatches(bytes, /<text[\s>]/i)) {
+          failures.push('svg contains <text> (cross-end font risk), prefer png');
+        } else {
+          return { bytes, format: 'svg' };
+        }
+      } else {
+        failures.push('svg export returned empty or non-svg bytes');
+      }
+    } catch (error) {
+      const message = errorMessage(error);
+      if (prefer === 'svg') throw new Error(`svg export failed (${message})`);
+      failures.push(`svg unsupported/failed: ${message}`);
+    }
+  }
+
+  // 2) Raster (PNG) — the only path when prefer==='png', and the fallback for 'auto'.
+  const shapes = [{ format: 'PNG', constraint: { type: 'SCALE', value: scale } }, { format: 'PNG', scale }];
   for (const shape of shapes) {
     const remainingMs = Math.max(1, budgetMs - (Date.now() - startedAt));
     try {
-      return toBytes(await withDeadline(exportAsync.call(node, shape), remainingMs, 'exportAsync'));
+      const bytes = toBytes(await withDeadline(exportAsync.call(node, shape), remainingMs, 'exportAsync'));
+      const note = prefer === 'auto' && failures.length > 0 ? `png fallback: ${failures.join(' | ')}` : undefined;
+      return { bytes, format: 'png', ...(note ? { formatNote: note } : {}) };
     } catch (error) {
       failures.push(errorMessage(error));
     }
@@ -160,6 +226,8 @@ export async function exportNodes(input: ExportNodesInput = {}): Promise<Record<
 
   const page = resolvePage(input.page);
   const scale = clamp(input.scale ?? 1, 0.25, 4);
+  const prefer: ExportPrefer =
+    input.prefer === 'auto' || input.prefer === 'svg' || input.prefer === 'png' ? input.prefer : 'png';
   const nodeIds = Array.from(new Set((input.nodeIds ?? []).filter(id => typeof id === 'string' && id.length > 0))).slice(
     0,
     MAX_NODES
@@ -218,7 +286,8 @@ export async function exportNodes(input: ExportNodesInput = {}): Promise<Record<
     }
 
     try {
-      const bytes = await renderNode(node, scale, PER_NODE_BUDGET_MS);
+      const rendered = await renderNode(node, scale, PER_NODE_BUDGET_MS, prefer);
+      const bytes = rendered.bytes;
       if (bytes.byteLength > MAX_IMAGE_BYTES) {
         skipped.push({
           id,
@@ -241,7 +310,9 @@ export async function exportNodes(input: ExportNodesInput = {}): Promise<Record<
         name: node.name,
         fileNameSafe: fileNameSafe(node.name),
         bytesBase64,
-        byteLength: bytes.byteLength
+        byteLength: bytes.byteLength,
+        format: rendered.format,
+        ...(rendered.formatNote ? { formatNote: rendered.formatNote } : {})
       });
     } catch (error) {
       const message = errorMessage(error);
@@ -263,6 +334,7 @@ export async function exportNodes(input: ExportNodesInput = {}): Promise<Record<
     file: { name: pixso.root.name },
     page: { id: page.id, name: page.name },
     scale,
+    prefer,
     exported,
     skipped,
     totalBase64Bytes,
