@@ -1,6 +1,7 @@
 import { dispatch } from './dispatch.js';
 import { PLUGIN_NAME, PLUGIN_VERSION } from './commands/health.js';
 import { getSelection, getSelectionMode, setSelectionMode } from './commands/getSelection.js';
+import { createCommandQueue } from './utils/commandQueue.js';
 import { readProp } from './utils/nodeProps.js';
 
 pixso.showUI(__html__, {
@@ -127,6 +128,19 @@ function trackSelection() {
   startSelectionPolling();
 }
 
+/** Commands execute one at a time; a slow bulk read must never interleave with the next command. */
+const commandQueue = createCommandQueue();
+
+function safePostMessage(payload: unknown): void {
+  try {
+    pixso.ui.postMessage(payload);
+  } catch (error) {
+    // postMessage failures must never take down the handler that is about to respond.
+    // eslint-disable-next-line no-console
+    console?.warn?.('postMessage failed', error instanceof Error ? error.message : String(error));
+  }
+}
+
 pixso.ui.onmessage = async (payload: unknown) => {
   const data = (payload ?? {}) as UiPayload;
 
@@ -168,10 +182,10 @@ pixso.ui.onmessage = async (payload: unknown) => {
   const input = (message.input && typeof message.input === 'object' ? message.input : {}) as Record<string, unknown>;
 
   try {
-    const result = await dispatch(message.command, input);
-    pixso.ui.postMessage({ type: 'mcp-response', response: { id: message.id, ok: true, result } });
+    const result = await commandQueue.run(() => dispatch(message.command as string, input));
+    safePostMessage({ type: 'mcp-response', response: { id: message.id, ok: true, result } });
   } catch (error) {
-    pixso.ui.postMessage({
+    safePostMessage({
       type: 'mcp-response',
       response: { id: message.id, ok: false, error: error instanceof Error ? error.message : String(error) }
     });

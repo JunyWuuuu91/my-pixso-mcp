@@ -46,7 +46,8 @@
         color: #fff; font-weight: 700; font-size: 14px;
         display: flex; align-items: center; justify-content: center; letter-spacing: -0.5px;
       }
-      .brand-name { font-size: 14px; font-weight: 650; }
+      .brand-name { font-size: 14px; font-weight: 650; display: flex; align-items: center; gap: 6px; }
+      .ver-badge { font-size: 10px; font-weight: 700; color: #0a7a58; background: #e3f5ee; border-radius: 999px; padding: 1px 7px; letter-spacing: 0.3px; font-variant-numeric: tabular-nums; }
       .brand-sub { font-size: 11px; color: var(--faint); }
       .pill {
         flex: none; display: inline-flex; align-items: center; gap: 6px;
@@ -170,8 +171,8 @@
         <div class="brand">
           <div class="mark">P</div>
           <div>
-            <div class="brand-name">Pixso MCP 本地桥</div>
-            <div class="brand-sub">把当前设计稿交给 AI 读取 · 插件 <span id="versionText">—</span></div>
+            <div class="brand-name">Pixso MCP 本地桥 <span id="versionBadge" class="ver-badge">v—</span></div>
+            <div class="brand-sub">把当前设计稿交给 AI 读取</div>
           </div>
         </div>
         <span id="statePill" class="pill">未连接</span>
@@ -278,7 +279,7 @@
       const tokenEl = document.getElementById('token');
       const endpointEl = document.getElementById('endpointBadge');
       const envEl = document.getElementById('envList');
-      const versionEl = document.getElementById('versionText');
+      const versionEl = document.getElementById('versionBadge');
       const sessionIdEl = document.getElementById('sessionId');
       const lastCommandEl = document.getElementById('lastCommand');
       const statTotalEl = document.getElementById('statTotal');
@@ -636,6 +637,11 @@
             return;
           }
 
+          if (message && message.type === 'pong') {
+            // bridge liveness proof; nothing to render
+            return;
+          }
+
           if (!message || typeof message.id !== 'string') return;
 
           if (inFlight) {
@@ -662,6 +668,7 @@
           const previous = state;
           ws = null;
           inFlight = null;
+          stopHeartbeat();
           if (manualRestart) {
             manualRestart = false;
             connect();
@@ -704,6 +711,7 @@
         log('本地桥连接建立');
         persistPort();
         sendHello();
+        startHeartbeat();
         if (ws && ws.readyState === WebSocket.OPEN) {
           parent.postMessage({ pluginMessage: { type: 'plugin-env-request' } }, '*');
         }
@@ -726,9 +734,35 @@
         }));
       }
 
+      //
+      // Heartbeat: the browser side cannot answer ws protocol pings, so the UI
+      // sends application-level {type:'ping'} frames. This keeps the bridge's
+      // liveness clock fresh (sessions no longer look stuck forever after a
+      // half-open connection) and — more importantly — the send() itself
+      // surfaces a dead socket, triggering onclose and the reconnect path.
+      //
+      let heartbeatTimer = null;
+      function startHeartbeat() {
+        stopHeartbeat();
+        heartbeatTimer = setInterval(() => {
+          if (!ws || ws.readyState !== WebSocket.OPEN) return;
+          try {
+            ws.send(JSON.stringify({ type: 'ping', t: Date.now() }));
+          } catch (error) {
+            log(`心跳发送失败：${error.message}`, 'warn');
+            try { ws.close(4000, 'heartbeat send failed'); } catch { /* already closing */ }
+          }
+        }, 5000);
+      }
+      function stopHeartbeat() {
+        if (heartbeatTimer) clearInterval(heartbeatTimer);
+        heartbeatTimer = null;
+      }
+
       function disconnect() {
         reconnectEnabled = false;
         settingsDirty = false;
+        stopHeartbeat();
         if (reconnectTimer) clearTimeout(reconnectTimer);
         reconnectTimer = null;
         if (ws) ws.close(1000, 'User disconnected');

@@ -1,6 +1,7 @@
 import { health } from './commands/health.js';
 import { getDocument } from './commands/getDocument.js';
 import { probeApi, type ProbeApiInput } from './commands/probeApi.js';
+import { readNodes, type ReadNodesInput } from './commands/readNodes.js';
 import { findDecorativeNodes, type FindDecorativeNodesInput } from './commands/findDecorativeNodes.js';
 import { exportNodes, type ExportNodesInput } from './commands/exportNodes.js';
 import { getSelection, type GetSelectionInput } from './commands/getSelection.js';
@@ -17,7 +18,8 @@ const COMMANDS: Record<string, CommandHandler> = {
     const i = input as ExportNodesInput;
     return exportNodes({ ...i, prefer: i.prefer ?? 'auto' });
   },
-  get_selection: input => getSelection(input as GetSelectionInput)
+  get_selection: input => getSelection(input as GetSelectionInput),
+  read_nodes: input => readNodes(input as ReadNodesInput)
 };
 
 export function knownCommands(): string[] {

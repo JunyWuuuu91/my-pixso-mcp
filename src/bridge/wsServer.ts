@@ -11,6 +11,9 @@ export interface BridgeServer {
   close(): Promise<void>;
 }
 
+/** Protocol ping every N ms; a socket that misses pongs is half-open and gets terminated. */
+const HEARTBEAT_INTERVAL_MS = 5_000;
+
 function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
 }
@@ -58,6 +61,7 @@ export async function startBridgeServer(config: ServerConfig, log: Logger): Prom
       if (socket.readyState === socket.OPEN) {
         socket.send(JSON.stringify({ type: 'auth-ok', sessionId: session.id }));
       }
+      startHeartbeat(socket, session, log);
       socket.on('close', (code, reason) => {
         log.info('Pixso plugin disconnected from WS bridge', { sessionId: session?.id, code, reason: reason.toString() });
       });
@@ -91,6 +95,14 @@ export async function startBridgeServer(config: ServerConfig, log: Logger): Prom
 
         if (message.type === 'hello') {
           session?.updatePluginInfo(isObject(message.plugin) ? message.plugin : undefined);
+          return;
+        }
+
+        // Application-level liveness from the plugin UI (browsers cannot send
+        // protocol pings). Any received message already proves the pipe works.
+        if (message.type === 'ping') {
+          session?.markAlive();
+          if (socket.readyState === socket.OPEN) socket.send(JSON.stringify({ type: 'pong', t: message.t }));
           return;
         }
 
@@ -130,6 +142,54 @@ export async function startBridgeServer(config: ServerConfig, log: Logger): Prom
       await closeHttpServer(httpServer);
     }
   };
+}
+
+/**
+ * Protocol-level liveness loop. ws pings cannot be sent from browsers, so the
+ * plugin UI answers with application-level {type:'ping'} frames; the bridge
+ * sends a ws ping too and closes the socket after two missed cycles. Closing
+ * is what makes a half-open connection visible: the session drops out of the
+ * registry and health reports the truth instead of a session frozen in
+ * "busy/stuck" forever.
+ */
+function startHeartbeat(socket: WebSocket, session: PluginSession, log: Logger): void {
+  let missed = 0;
+  const timer = setInterval(() => {
+    if (socket.readyState !== socket.OPEN) {
+      clearInterval(timer);
+      return;
+    }
+    // A command in flight means the plugin is legitimately working (e.g. a slow
+    // exportAsync render that starves the app-level ping). Never heartbeat-terminate
+    // an active session; the heartbeat exists to catch idle half-open sockets only.
+    if (session.hasPendingCall()) {
+      missed = 0;
+      try {
+        socket.ping();
+      } catch {
+        clearInterval(timer);
+      }
+      return;
+    }
+    missed += 1;
+    if (missed > 2) {
+      log.warn('Pixso plugin missed heartbeat pongs; closing half-open socket', { sessionId: session.id });
+      socket.close(4000, 'heartbeat timeout');
+      clearInterval(timer);
+      return;
+    }
+    try {
+      socket.ping();
+    } catch {
+      clearInterval(timer);
+    }
+  }, HEARTBEAT_INTERVAL_MS);
+  socket.on('close', () => clearInterval(timer));
+  socket.on('message', () => {
+    // any inbound traffic proves the pipe works
+    missed = 0;
+    session.markAlive();
+  });
 }
 
 async function closeWsServer(server: WebSocketServer): Promise<void> {

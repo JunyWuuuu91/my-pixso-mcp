@@ -15,6 +15,14 @@ interface PendingCall {
   reject: (reason: Error) => void;
 }
 
+/**
+ * After a command times out the session is marked stuck. If the socket keeps
+ * answering heartbeats for this long afterwards, the original response is
+ * never coming back and the window is usable again, so the stuck marker
+ * clears automatically instead of requiring a manual plugin reload.
+ */
+const STUCK_GRACE_MS = 15_000;
+
 export const NO_PLUGIN_MESSAGE =
   'No Pixso plugin is connected. Open Pixso, run the plugin "Pixso MCP 本地桥" and keep its window open until the badge shows 「已连接」.';
 
@@ -26,6 +34,8 @@ export class PluginSession {
 
   private pending?: PendingCall;
   private stuck?: { command: string; since: Date; timedOutId: string };
+  /** last pong (or any liveness proof) received from the plugin */
+  private lastAliveAt = Date.now();
 
   constructor(
     private readonly socket: WebSocket,
@@ -77,8 +87,32 @@ export class PluginSession {
     return { value: 'ready', reason: 'Environment reported; this window answers commands.' };
   }
 
+  /**
+   * Heartbeat proof from the bridge: the socket answered a ping (or any plugin
+   * message arrived). Refreshes the liveness clock and, once the grace period
+   * has elapsed with the window still alive, clears a stuck marker whose
+   * response is never coming back so the window becomes usable again without
+   * a manual plugin reload.
+   */
+  markAlive(): void {
+    this.lastAliveAt = Date.now();
+    this.maybeClearStuck();
+  }
+
+  private maybeClearStuck(): void {
+    if (!this.stuck || this.pending) return;
+    if (Date.now() - this.stuck.since.getTime() < STUCK_GRACE_MS) return;
+    if (Date.now() - this.lastAliveAt > STUCK_GRACE_MS) return;
+    this.stuck = undefined;
+  }
+
   isBusy(): boolean {
     return this.pending !== undefined || this.stuck !== undefined;
+  }
+
+  /** True while a command is actively awaiting its plugin response (not stuck). */
+  hasPendingCall(): boolean {
+    return this.pending !== undefined;
   }
 
   async call<TResult = unknown>(command: string, input: unknown, timeoutMs = this.config.pluginTimeoutMs): Promise<TResult> {
@@ -98,6 +132,7 @@ export class PluginSession {
         const current = record;
         this.pending = undefined;
         this.stuck = { command, since: new Date(), timedOutId: id };
+        this.lastAliveAt = Date.now();
         if (current) clearTimeout(current.timeout);
         reject(new Error(`Pixso plugin command timed out after ${timeoutMs}ms: ${command}. The plugin window stays connected; the session is marked stuck until the plugin responds again or is reloaded.`));
       }, timeoutMs);
@@ -119,6 +154,7 @@ export class PluginSession {
 
   handleResponse(response: PluginCommandResponse): void {
     this.lastSeenAt = new Date();
+    this.lastAliveAt = Date.now();
 
     const pending = this.pending;
     if (pending && pending.id === response.id) {
@@ -131,6 +167,9 @@ export class PluginSession {
 
     if (this.stuck && this.stuck.timedOutId === response.id) {
       this.stuck = undefined;
+    } else {
+      // Late/unknown responses are also liveness proofs from a still-running window.
+      this.maybeClearStuck();
     }
   }
 

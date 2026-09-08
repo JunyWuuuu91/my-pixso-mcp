@@ -1,5 +1,5 @@
 export const PLUGIN_NAME = 'My Pixso MCP';
-export const PLUGIN_VERSION = '0.1.0';
+export const PLUGIN_VERSION = '0.2.1';
 
 export async function health(): Promise<Record<string, unknown>> {
   return {
@@ -7,7 +7,7 @@ export async function health(): Promise<Record<string, unknown>> {
     plugin: {
       name: PLUGIN_NAME,
       version: PLUGIN_VERSION,
-      commands: ['health', 'get_document', 'probe_api', 'find_decorative_nodes', 'export_nodes_png', 'get_selection']
+      commands: ['health', 'get_document', 'probe_api', 'read_nodes', 'find_decorative_nodes', 'export_nodes_png', 'get_selection']
     },
     document: {
       name: pixso.root?.name,

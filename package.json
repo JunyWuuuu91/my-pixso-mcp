@@ -1,6 +1,6 @@
 {
   "name": "my-pixso-mcp",
-  "version": "0.1.0",
+  "version": "0.2.1",
   "description": "Local MCP bridge and Pixso plugin for reading design data with AI agents.",
   "type": "module",
   "author": "JunyWuuuu91",

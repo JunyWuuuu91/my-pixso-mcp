@@ -189,7 +189,7 @@ describe('HTTP MCP server + WS bridge', () => {
 
     const list = await mcpRequest({ jsonrpc: '2.0', id: 2, method: 'tools/list' }, sessionId ?? undefined);
     const toolNames = list.body.result.tools.map((tool: any) => tool.name).sort();
-    expect(toolNames).toEqual(['export_nodes_png', 'export_nodes_smart', 'find_decorative_nodes', 'get_document', 'get_selection', 'health', 'probe_api']);
+    expect(toolNames).toEqual(['export_nodes_png', 'export_nodes_smart', 'find_decorative_nodes', 'get_document', 'get_selection', 'health', 'probe_api', 'read_nodes']);
   });
 
   it('calls get_document end to end through the fake plugin', async () => {

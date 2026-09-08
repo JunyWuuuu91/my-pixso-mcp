@@ -32,8 +32,8 @@ const MAX_IMAGE_BYTES = 2_097_152;
 const MAX_TOTAL_BASE64 = 12_582_912;
 const LOOKUP_VISITED_CAP = 20_000;
 const BASE64_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
-const PER_NODE_BUDGET_MS = 8_000;
-const COMMAND_BUDGET_MS = 45_000;
+const PER_NODE_BUDGET_MS = 30_000;
+const COMMAND_BUDGET_MS = 120_000;
 const CONSECUTIVE_TIMEOUT_LIMIT = 3;
 // Measured on Pixso 2.3.1: the renderer stops answering exportAsync after ~100
 // consecutive renders and fully recovers after ~25s idle. Refuse just before
@@ -181,11 +181,13 @@ async function renderNode(
   const startedAt = Date.now();
   const failures: string[] = [];
 
-  // 1) Vector attempt (SVG) when allowed.
+  // 1) Vector attempt (SVG) when allowed. Cap it well under the raster budget so a
+  // hanging SVG attempt (large imported HTML docs can stall SVG export) never
+  // consumes the time the PNG path needs.
   if (prefer === 'svg' || prefer === 'auto') {
-    const remainingMs = Math.max(1, budgetMs - (Date.now() - startedAt));
+    const svgBudget = prefer === 'svg' ? budgetMs : Math.min(8_000, budgetMs);
     try {
-      const bytes = toBytes(await withDeadline(exportAsync.call(node, { format: 'SVG' }), remainingMs, 'exportAsync(SVG)'));
+      const bytes = toBytes(await withDeadline(exportAsync.call(node, { format: 'SVG' }), svgBudget, 'exportAsync(SVG)'));
       if (bytes.byteLength > 0 && looksLikeSvg(bytes)) {
         if (prefer === 'svg') return { bytes, format: 'svg' };
         // auto: fall back to PNG for cases that render inconsistently or bloat as SVG
@@ -207,11 +209,13 @@ async function renderNode(
   }
 
   // 2) Raster (PNG) — the only path when prefer==='png', and the fallback for 'auto'.
+  // Each PNG attempt gets its OWN full budget: a failed/empty SVG attempt above must
+  // not starve the PNG path down to ~1ms (large imported docs can make SVG export
+  // hang for the whole budget while PNG would render fine).
   const shapes = [{ format: 'PNG', constraint: { type: 'SCALE', value: scale } }, { format: 'PNG', scale }];
   for (const shape of shapes) {
-    const remainingMs = Math.max(1, budgetMs - (Date.now() - startedAt));
     try {
-      const bytes = toBytes(await withDeadline(exportAsync.call(node, shape), remainingMs, 'exportAsync'));
+      const bytes = toBytes(await withDeadline(exportAsync.call(node, shape), budgetMs, 'exportAsync'));
       const note = prefer === 'auto' && failures.length > 0 ? `png fallback: ${failures.join(' | ')}` : undefined;
       return { bytes, format: 'png', ...(note ? { formatNote: note } : {}) };
     } catch (error) {
